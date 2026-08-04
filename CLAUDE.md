@@ -81,6 +81,14 @@ he can decide what to send on.
 ## Git
 
 - Branch before editing. Never work directly on `main`.
+- **Committing on a work branch needs no approval.** Commit whenever a change is coherent
+  and verified, with a message that explains the why. A local commit changes nothing outside
+  the machine and is reversible; withholding it only produces one large unreviewable blob.
+- **Pushing, opening a PR and merging to `main` all need explicit approval** in the
+  conversation. That is the boundary that matters: it is where work leaves the machine and
+  where `main` can move. `main` is Shay's own (it tracks his fork since 08-08-2026), which
+  makes merging into it routine rather than fraught, but the push itself is still the moment
+  the work stops being local and it still gets asked about.
 - Temporary zip/publish artifacts: add the pattern to `.gitignore` *before* creating them.
 
 ## UI language and text direction
