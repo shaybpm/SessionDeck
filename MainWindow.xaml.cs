@@ -442,19 +442,21 @@ public partial class MainWindow : Window
         s.Phantom = phantom;
     }
 
-    /// <summary>A session the deck only ever heard about through events that carried no
-    /// transcript path at all — hand-driven CLI calls (hooks/README.md) and the cwd safety
-    /// net can both produce one. Nothing to scan, nothing to resume, and unreachable by
-    /// every existing sweep: RefreshPhantom needs a declared path, NeverMaterialized
-    /// returns false without one, and the orphan sweep can't correlate a titleless session
-    /// while VSCode is open. Result: a card that outlived VSCode, restarts and the 15-minute
-    /// orphan TTL (issue 2026-08-04, session "s1").
+    /// <summary>A titleless session whose conversation was never written to disk, and that
+    /// has since gone silent. Two shapes reach here and neither can be scanned, correlated
+    /// or resumed: no transcript path at all — hand-driven CLI calls (hooks/README.md) and
+    /// the cwd safety net — and a path that was declared but never written, which is what
+    /// the Claude Code CLI leaves behind for the extra session ids it mints per launch
+    /// (issue 2026-08-05, agent mode). Both are unreachable by every other sweep:
+    /// RefreshPhantom only looks at idle sessions, so any hook that moves the status makes
+    /// the card immortal; the orphan sweep can't correlate a titleless session while VSCode
+    /// is open; and NeverMaterialized only runs on a SessionEnd that never comes.
+    /// Result: a card — blinking orange in the reported case — that outlived VSCode,
+    /// restarts and the 15-minute orphan TTL (issue 2026-08-04, session "s1").
     /// Silence — not status — is the guard: while events keep arriving it stays, so the CLI
     /// sequence in hooks/README.md still drives a visible card.</summary>
     private static bool Ghost(SessionViewModel s)
-        => !s.Closed && s.TranscriptPath is not { Length: > 0 }
-           && string.IsNullOrEmpty(s.CustomTitle) && string.IsNullOrEmpty(s.TabTitle)
-           && string.IsNullOrEmpty(s.AutoTitle) && s.Description.Length == 0
+        => !s.Closed && NeverMaterialized(s)
            && DateTime.Now - (s.LastEventAt ?? s.StartedAt) > PhantomSessionTtl;
 
     private void RefreshPhantomSessions()
@@ -1367,8 +1369,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>A session whose transcript file was never written and that has no
-    /// titles — an empty conversation VSCode spins up eagerly (issue 2026-07-26). Nothing
-    /// to display or resume, so on close it is dropped rather than archived.</summary>
+    /// titles — an empty conversation VSCode spins up eagerly (issue 2026-07-26), or one of
+    /// the spare session ids the CLI mints per launch. Nothing to display or resume, so on
+    /// close it is dropped rather than archived, and once silent the Ghost sweep drops it
+    /// even without a close.</summary>
     private static bool NeverMaterialized(SessionViewModel s)
     {
         if (!string.IsNullOrEmpty(s.CustomTitle) || !string.IsNullOrEmpty(s.TabTitle) ||

@@ -161,3 +161,11 @@ if ((Test-Path $flag) -and ((Get-Content $flag -Raw).Trim() -eq '0')) { exit 0 }
   scan, correlate or resume for it. Since v0.9.4 such a session is removed once it has
   been titleless and silent for 30 minutes — skipping the `session end` above leaves the
   card up for that long, not forever.
+- **Session ids with no conversation behind them.** A Claude Code CLI launch mints more
+  session ids than it uses — agent mode produced five in one minute (2026-08-05), of which
+  one carried the conversation. The unused ones still fire `SessionStart`, and their
+  `transcript_path` points at a `.jsonl` that is never written. Since v0.9.5 the 30-minute
+  rule above covers them too: titleless **and** no transcript file on disk, whatever the
+  status. It used to apply only to a missing `--transcript` and, separately, only to `idle`
+  sessions — so a single `Notification` on such an id (agent mode sends one when the run
+  finishes) pinned a blinking orange card to the deck permanently.
