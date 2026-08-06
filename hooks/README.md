@@ -8,7 +8,7 @@
 | `UserPromptSubmit` | `session status --state working` | steady blue | the **prompt** itself (`--detail`, trimmed to 400 chars) |
 | `Notification` | `session status --state waiting` | blinking orange | the waiting message (`--detail` — e.g. "needs your permission to use Bash") |
 | `PermissionRequest` | `session status --state waiting --permission-dialog` | blinking orange | the tool and its argument (`--detail` — e.g. `Write: C:\Windows\Temp\x.txt`) |
-| `Stop` | `session status --state done` | blinking green → steady once clicked | |
+| `Stop` | `session status --state done` | blinking purple → steady once clicked | |
 | `StopFailure` | `session status --state error` | red | the error message that killed the turn |
 | `PreToolUse` (AskUserQuestion / ExitPlanMode) | `session status --state waiting` | blinking orange | the question text / "Waiting for plan approval" — question forms are not permission requests, so they never raise `PermissionRequest` |
 | `PostToolUse` (same tools) | `session status --state working` | steady blue | the user answered — Claude is working again |
@@ -140,6 +140,12 @@ if ((Test-Path $flag) -and ((Get-Content $flag -Raw).Trim() -eq '0')) { exit 0 }
 
 - The script is fire-and-forget: every failure is swallowed (`exit 0`) so it can never disrupt a session; PowerShell 5.1 compatible.
 - The file is saved as **UTF-8 with BOM**. Its user-facing strings are ASCII since v0.9.0, but the comments still contain non-ASCII characters, and PS 5.1 reads a BOM-less .ps1 as ANSI — keep the same encoding when editing.
+- `he` state (blinking green): **no hook drives it** — it is set by hand, or by whatever runs
+  your end-of-session routine, with `session status --state he`. `done` only means the turn
+  stopped, which happens dozens of times a day; `he` means the session was closed out for
+  good, and it is the one state a hook cannot overwrite: the `Stop` hook of the very turn
+  that set it arrives a second later and would otherwise undo it. Anything that shows real
+  activity (`working` / `waiting` / `error`), or a `SessionStart` on the same id, clears it.
 - `error` state: `StopFailure` gives it a dedicated hook. Claude Code exposes no generic error event, so anything that isn't a failed turn stays unmapped.
   The state is still available from the CLI (`--state error`) for other scripts; SessionEnd's `reason` is stored and displayed.
 - Manual check without Claude Code:
