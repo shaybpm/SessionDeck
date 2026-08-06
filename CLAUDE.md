@@ -127,6 +127,14 @@ lifecycle is broken; the log is what shows the actual ordering of hook arrival v
 scan. The thresholds, the false-alarm measurements behind them and the
 `PermissionDialogScanMark` bound are documented in [`hooks/README.md`](hooks/README.md).
 
+**`he` is the exception to both** (this fork, v0.9.6). No hook produces it and no scan
+clears it: it is set explicitly with `session status --state he` when a session has been
+closed out for good, and `SetSessionStatus` refuses to let a later `done` or `idle`
+overwrite it — the `Stop` hook of the turn that set it arrives right behind it and would
+otherwise undo it within a second. `working` / `waiting` / `error`, or a `SessionStart` on
+the same id, do clear it. If an `he` card goes purple on its own, that ordering is where to
+look, and the log line to grep for is `kept he`.
+
 When tuning any detection: **precision over coverage**. A false alarm teaches the user to
 ignore the deck, which costs more than a missed one. Measure the false-alarm rate before
 lowering a threshold.
@@ -139,7 +147,7 @@ bound by. If he wants one changed, change it.
 
 | # | Decision |
 |---|---|
-| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. |
+| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. **Changed in this fork (v0.9.6):** `done` moved to purple and green went to a new terminal status, `he` — see below. |
 | 12 | **A session that closes** disappears from the normal view and stays available in the card's expanded view (▼) with a resume option. Retention: the last ~20 closed sessions per workspace (`ClosedSessionRetention`). |
 | 13 | **VSCode only in the UI.** The engine underneath stays generic (any top-level window can be tracked, pinned and driven), but the UI and the flows are filtered to VSCode. Terminal support: maybe some day, not now. |
 | 15 | **The app is a control deck for Claude Code sessions**, not a generic window grid. Tile data from the pre-cards era is still round-tripped in config as a legacy field so nothing is lost, but it is never displayed. |

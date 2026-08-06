@@ -79,8 +79,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SessionStatus.Error => 0,
         SessionStatus.Waiting => 1,
         SessionStatus.Done => 2,
-        SessionStatus.Working => 3,
-        _ => 4,
+        SessionStatus.He => 3,      // finished for real — the least urgent thing to look at
+        SessionStatus.Working => 4,
+        _ => 5,
     };
 
     public void RebuildStatusSummary()

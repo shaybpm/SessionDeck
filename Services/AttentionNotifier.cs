@@ -40,9 +40,16 @@ public sealed class AttentionNotifier : IDisposable
             _taskbar = (ITaskbarList3)new TaskbarList();
             _taskbar.HrInit();
         }
-        catch (COMException)
+        catch (Exception)
         {
-            _taskbar = null;   // no shell taskbar (rare, e.g. a stripped session) — badge is simply skipped
+            // No shell taskbar (rare, e.g. a stripped session) — badge is simply skipped.
+            // Catching COMException alone was not enough: the CLR maps well-known HRESULTs
+            // to their own exception types before COMException ever gets a chance, and
+            // HrInit returning E_NOTIMPL therefore arrives as NotImplementedException. It
+            // escaped, and the whole app died on startup over an optional badge (seen on
+            // Windows 11 26200, 06-08-2026, on both 0.9.5 and 0.9.6). Nothing here is worth
+            // a crash, so the net is as wide as the feature is optional.
+            _taskbar = null;
         }
     }
 

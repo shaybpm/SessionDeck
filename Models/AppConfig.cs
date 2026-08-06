@@ -195,7 +195,7 @@ public class WindowBounds
 
 public class AppConfig
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;   // 3: `done` moved green→purple, `he` took green
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;
@@ -256,7 +256,11 @@ public class AppConfig
         ["idle"] = new StatusStyle { Color = "gray" },
         ["working"] = new StatusStyle { Color = "blue" },
         ["waiting"] = new StatusStyle { Color = "orange", AltColor = "black", UntilAcknowledge = true },
-        ["done"] = new StatusStyle { Color = "green", AltColor = "black", UntilAcknowledge = true },
+        ["done"] = new StatusStyle { Color = "purple", AltColor = "black", UntilAcknowledge = true },
         ["error"] = new StatusStyle { Color = "red", AltColor = "black", UntilAcknowledge = true },
+        // The session ran its full end-of-session protocol ("Happy Ending"). It ends the
+        // session for real, so it takes the green `done` used to carry, and `done` — which
+        // now only means "the turn stopped" — moves to purple.
+        ["he"] = new StatusStyle { Color = "green", AltColor = "black", UntilAcknowledge = true },
     };
 }

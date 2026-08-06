@@ -6,7 +6,7 @@ using SessionDeck.Services;
 
 namespace SessionDeck.ViewModels;
 
-public enum SessionStatus { Idle, Working, Waiting, Done, Error }
+public enum SessionStatus { Idle, Working, Waiting, Done, Error, He }
 
 public static class SessionStatusNames
 {
@@ -17,6 +17,7 @@ public static class SessionStatusNames
         SessionStatus.Waiting => "waiting",
         SessionStatus.Done => "done",
         SessionStatus.Error => "error",
+        SessionStatus.He => "he",
         _ => "idle",
     };
 
@@ -29,6 +30,7 @@ public static class SessionStatusNames
             "waiting" => SessionStatus.Waiting,
             "done" => SessionStatus.Done,
             "error" => SessionStatus.Error,
+            "he" => SessionStatus.He,
             _ => (SessionStatus)(-1),
         };
         return (int)status >= 0;

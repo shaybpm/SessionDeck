@@ -115,6 +115,18 @@ public partial class MainWindow : Window
         _legacyAutoRemove = config.AutoRemoveDisconnected;
 
         // Status→style mapping (decision 11): config overrides on top of defaults.
+        // Schema 3 recoloured `done` (green→purple). Every config ever saved carries the
+        // full map, including the old default, which would silently win over the new one —
+        // so drop that one entry, and only when it is still byte-for-byte the old default,
+        // leaving a colour the user actually chose alone.
+        if (config.SchemaVersion < 3 &&
+            config.StatusStyles.GetValueOrDefault("done") is { } oldDone &&
+            oldDone.Color.Equals("green", StringComparison.OrdinalIgnoreCase) &&
+            oldDone.AltColor is "black" && oldDone.BlinkIntervalMs == 500 && oldDone.UntilAcknowledge)
+        {
+            config.StatusStyles.Remove("done");
+            LogService.Info("config", "schema<3: dropped the stale default `done` style so it recolours to purple");
+        }
         _statusStyles = AppConfig.DefaultStatusStyles();
         foreach (var (key, style) in config.StatusStyles)
             _statusStyles[key.ToLowerInvariant()] = style;
@@ -1284,8 +1296,16 @@ public partial class MainWindow : Window
                 return ($"session {sessionId} is closed — status not changed", false);
         }
         var prev = session.Status;
-        session.Status = status;
-        if (prev != status)
+        // `he` is the one status a hook may not overwrite with a quieter one. It is set from
+        // inside the last turn of the session, so the Stop hook that ends that very turn
+        // arrives right behind it and would put the card back to `done` a second later.
+        // Real activity (working / waiting / error) does clear it — the session came back
+        // to life, and the card has to say so.
+        bool keepHe = prev == SessionStatus.He && status is SessionStatus.Done or SessionStatus.Idle;
+        if (!keepHe) session.Status = status;
+        if (keepHe)
+            LogService.Info("status", $"session={sessionId} kept he (ignored →{SessionStatusNames.ToName(status)})");
+        else if (prev != status)
             LogService.Info("status", $"session={sessionId} {SessionStatusNames.ToName(prev)}→{SessionStatusNames.ToName(status)} ws=\"{ws.DisplayTitle}\"");
         // PermissionRequest fires when the dialog opens, but Claude Code has no matching
         // "resolved" event — so the clearing is handed to the transcript scanner, which
@@ -1310,7 +1330,9 @@ public partial class MainWindow : Window
             // scan callback re-runs the correlation and acknowledges (issue 2026-07-20).
             RefreshTranscriptTitles();
         AfterSessionChange(ws);
-        return ($"session {sessionId} → {SessionStatusNames.ToName(status)}", true);
+        return keepHe
+            ? ($"session {sessionId} stays he (ignored {SessionStatusNames.ToName(status)})", true)
+            : ($"session {sessionId} → {SessionStatusNames.ToName(status)}", true);
     }
 
     /// <summary>A session whose transcript file was never written and that has no
@@ -1790,6 +1812,7 @@ public partial class MainWindow : Window
     {
         SessionStatus.Waiting => "waiting for you",
         SessionStatus.Done => "finished",
+        SessionStatus.He => "wrapped up (HE)",
         SessionStatus.Error => "error",
         _ => SessionStatusNames.ToName(status),
     };
