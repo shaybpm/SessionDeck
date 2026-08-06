@@ -56,7 +56,7 @@ Assert ($json.hooks.PreToolUse[0].matcher -eq 'AskUserQuestion|ExitPlanMode') "P
 Assert ($json.hooks.PostToolUse[0].matcher -eq 'AskUserQuestion|ExitPlanMode') "PostToolUse matcher"
 Assert ($json.hooks.SessionStart[0].PSObject.Properties.Name -notcontains 'matcher') "SessionStart has no matcher"
 $cmd = $json.hooks.Stop[0].hooks[0].command
-Assert ($cmd -match '^powershell -NoProfile -ExecutionPolicy Bypass -File ".+sessiondeck-hook\.ps1" Stop$') "command format ($cmd)"
+Assert ($cmd -match '^powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ".+sessiondeck-hook\.ps1" Stop$') "command format ($cmd)"
 $bytes = [IO.File]::ReadAllBytes($s)
 Assert (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB)) "written without BOM"
 

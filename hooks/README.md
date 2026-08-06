@@ -73,43 +73,43 @@ The hooks are still installed and still useful: in the terminal they work fully,
 
 **The recommended way (v0.6.29+):** `sessiondeck install-hooks` — merges the 11 hooks into `~/.claude/settings.json` with the real installation path, after a backup. Idempotent; `sessiondeck uninstall-hooks` removes them. Supports `--settings <path>` (a specific project's settings, for instance) and `--dry-run`.
 
-**Manual installation (reference):** add this to `~/.claude/settings.json` — replace `D:\Eyal\SessionDeck\hooks` with the real path of the script on your machine:
+**Manual installation (reference):** add this to `~/.claude/settings.json` — replace `D:\Eyal\SessionDeck\hooks` with the real path of the script on your machine. **Keep `-WindowStyle Hidden`, and keep it before `-File`** (everything after `-File` is passed to the script): `PreToolUse` and `PostToolUse` fire on every tool call of every session, so without the flag a handful of open sessions produce dozens of console windows a minute. That is not a cosmetic flicker — creating and destroying windows at that rate is shell work, and on 2026-08-06 it drove `explorer.exe` to 103% of a core and dropped the taskbar.
 
 ```json
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" SessionStart" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" SessionStart" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" UserPromptSubmit" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" UserPromptSubmit" } ] }
     ],
     "Notification": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Notification" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Notification" } ] }
     ],
     "PermissionRequest": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PermissionRequest" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PermissionRequest" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Stop" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Stop" } ] }
     ],
     "StopFailure": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" StopFailure" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" StopFailure" } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" SessionEnd" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" SessionEnd" } ] }
     ],
     "PreToolUse": [
-      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PreToolUse" } ] }
+      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PreToolUse" } ] }
     ],
     "PostToolUse": [
-      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PostToolUse" } ] }
+      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PostToolUse" } ] }
     ],
     "Elicitation": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Elicitation" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Elicitation" } ] }
     ],
     "ElicitationResult": [
-      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" ElicitationResult" } ] }
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" ElicitationResult" } ] }
     ]
   }
 }

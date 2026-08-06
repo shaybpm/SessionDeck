@@ -139,7 +139,12 @@ public static class HookInstaller
             root["hooks"] = hooks;
         }
 
-        string command = $"powershell -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"";
+        // -WindowStyle Hidden is not cosmetic: PreToolUse/PostToolUse fire on every tool call
+        // of every session, so without it ten open sessions produce dozens of console windows a
+        // minute. Creating and destroying a window is shell work, and explorer.exe is what pays
+        // for it — measured at 103% of a core, with the taskbar dropping out (2026-08-06).
+        // Must stay before -File: everything after -File belongs to the script.
+        string command = $"powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"";
 
         foreach (var (evt, matcher) in HookTable)
         {
