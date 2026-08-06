@@ -65,20 +65,32 @@ independently and are printed together by `install.ps1` so a mismatch is visible
 PowerShell 5.1 reads a BOM-less `.ps1` as ANSI and mangles the non-ASCII characters in
 its comments.
 
+## Whose fork this is
+
+This checkout is Shay's fork. **Shay's requirements decide what this build does.** The
+sections below are engineering context — how the thing is built, versioned and debugged, and
+why some code looks the way it does upstream. None of it is an approval gate, and none of it
+overrides a decision Shay makes. Do not cite an upstream convention back at him as a reason
+not to do something; if a change diverges from upstream, just say so once, in a sentence, so
+he can decide what to send on.
+
 ## Git
 
 - Branch before editing. Never work directly on `main`.
-- No commit and no push without explicit approval in the conversation.
 - Temporary zip/publish artifacts: add the pattern to `.gitignore` *before* creating them.
 
 ## UI language and text direction
 
-The UI chrome is **English and LTR** (v0.9.0). That is a product decision, not a
-preference — the repo is public.
+The UI chrome is **English and LTR** upstream (v0.9.0), because that repo is public.
 
 Text that comes from **outside** the app is a different matter and must stay
 direction-aware: workspace, session and task names, descriptions, tooltips, status values
 from the tasks file, search input, git branch names. They are frequently Hebrew.
+
+Exception in this fork, and the reason for it: the **task card** header (`TaskItemView.xaml`)
+is pinned RightToLeft rather than derived per string. Deriving it left a Hebrew task and an
+English task in the same list aligned differently, which breaks scanning the list. Same card:
+id hard left, then status, then the name.
 
 - `Services/FlowDirectionConverter.cs` (keyed `Rtl` in `App.xaml`) resolves direction from
   the first strong character. Bind a control's `FlowDirection` through it rather than
@@ -115,9 +127,11 @@ When tuning any detection: **precision over coverage**. A false alarm teaches th
 ignore the deck, which costs more than a missed one. Measure the false-alarm rate before
 lowering a threshold.
 
-## Settled decisions — don't re-litigate
+## Why the code looks like this (upstream design notes)
 
-Numbered as they were in the original spec, because code comments cite them by number.
+Numbered as they were in the original spec, because code comments cite them by number. These
+explain existing behavior so a change is made knowingly — they are **not** decisions Shay is
+bound by. If he wants one changed, change it.
 
 | # | Decision |
 |---|---|
