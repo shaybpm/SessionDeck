@@ -154,6 +154,7 @@ sessiondeck session list   [--workspace <name>] [--all]
 ## Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — how to build, test and release it, plus the settled design decisions.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the code map: which file owns what, and what breaks when you change it.
 - [`hooks/README.md`](hooks/README.md) — hook wiring and the waiting-detection heuristics.
 - [`vscode-extension/README.md`](vscode-extension/README.md) — the companion extension.
 

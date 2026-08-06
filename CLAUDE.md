@@ -10,6 +10,10 @@ Public-facing overview: [`README.md`](README.md). Hook wiring, the waiting-detec
 thresholds and the toggles: [`hooks/README.md`](hooks/README.md) — that file is the
 authoritative source `Cli/HookInstaller.cs` must match exactly.
 
+**Which file holds what:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — the code map. Read it
+before hunting for where a behaviour lives; `MainWindow.xaml.cs` holds most of the engine
+and that is not obvious from the file list.
+
 ## Build, run, deploy
 
 **The running app locks its own exe.** Building over a live instance fails with MSB3027.
