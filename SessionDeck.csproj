@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>SessionDeck</AssemblyName>
     <RootNamespace>SessionDeck</RootNamespace>
-    <Version>0.9.4</Version>
+    <Version>0.9.5</Version>
     <ApplicationIcon>assets\SessionDeck.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>SessionDeck.Program</StartupObject>

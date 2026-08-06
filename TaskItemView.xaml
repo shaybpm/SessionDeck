@@ -4,16 +4,43 @@
     <!-- One task card (T-0116): name + optional status/description, action buttons.
          DataContext = TaskItemViewModel. Used by the tasks page and by the workspace
          card's inline task list. -->
+    <!-- The whole card is a click target (not only the buttons), and it carries no tooltip:
+         everything a tooltip would show is already printed on the card. The narrow squares
+         in TasksStripView DO keep theirs - there the tooltip is the only way to read a task. -->
     <Border BorderBrush="{Binding StatusBrush}" BorderThickness="2" CornerRadius="5"
             Margin="0,3" Padding="8,5" Background="#FF262626"
-            ToolTip="{Binding TooltipText}">
+            Cursor="Hand" MouseLeftButtonUp="Card_MouseUp">
         <StackPanel>
+            <!-- Fixed reading order, independent of the task's language: id hard left, then
+                 status, then the name filling the rest and right-aligned. Deriving the header
+                 direction from the name (the Rtl converter) made a Hebrew task and an English
+                 one line up differently, which is what a scan down the list trips over. -->
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <DockPanel FlowDirection="{Binding Name, Converter={StaticResource Rtl}}">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,8,0">
+                    <TextBlock Text="{Binding Id}" Foreground="#FF777777" FontSize="10"
+                               VerticalAlignment="Center"/>
+                    <!-- status text comes from the external file: direction follows its content -->
+                    <TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="11"
+                               VerticalAlignment="Center" Margin="8,0,0,0"
+                               FlowDirection="{Binding Status, Converter={StaticResource Rtl}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasStatus}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+                <!-- RightToLeft mirrors layout as well as glyphs, so Dock=Left puts the pin on
+                     the right of the name, which is the side the text now starts from. -->
+                <DockPanel Grid.Column="1" FlowDirection="RightToLeft">
                     <TextBlock DockPanel.Dock="Left" Text="📌" FontSize="10" Margin="0,1,4,0"
                                VerticalAlignment="Top">
                         <TextBlock.Style>
@@ -29,25 +56,6 @@
                     <TextBlock Text="{Binding Name}" Foreground="White" FontSize="12"
                                FontWeight="SemiBold" TextWrapping="Wrap"/>
                 </DockPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top"
-                            Margin="8,0,0,0">
-                    <!-- status text comes from the external file: direction follows its content -->
-                    <TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="11"
-                               VerticalAlignment="Center"
-                               FlowDirection="{Binding Status, Converter={StaticResource Rtl}}">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasStatus}" Value="False">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock Text="{Binding Id}" Foreground="#FF777777" FontSize="10"
-                               VerticalAlignment="Center" Margin="8,0,0,0"/>
-                </StackPanel>
             </Grid>
             <TextBlock Text="{Binding Description}" Foreground="#FF999999" FontSize="10.5"
                        TextWrapping="Wrap" Margin="0,2,0,0"
