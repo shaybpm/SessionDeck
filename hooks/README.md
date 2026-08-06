@@ -20,6 +20,44 @@ Every event also forwards, when present: `transcript_path` and `permission_mode`
 
 Of the **31** hook events Claude Code exposes (the authoritative list is the JSON schema of `settings.json` itself), SessionDeck registers these 11. The rest are irrelevant to session state: they either don't change it (`InstructionsLoaded`, `MessageDisplay`, `FileChanged`, `ConfigChange`), are already covered indirectly (`PreCompact`/`PostCompact` — `SessionStart` arrives with `source: compact`), or belong to flows not used here (`WorktreeCreate`, `TeammateIdle`, `TaskCreated`).
 
+### What the bridge costs, measured
+
+A claim that keeps being repeated, including once in this repo's own code comments, is that
+every tool call pays for two PowerShell starts (`PreToolUse` and `PostToolUse`). It is wrong.
+Claude Code honours the matcher, so those two registrations run **only** for `AskUserQuestion`
+and `ExitPlanMode`. Sampling every `powershell.exe` start on a busy machine for 65 seconds
+caught 55 of them across a dozen tool calls, and not one was `sessiondeck-hook.ps1`; the four
+to five processes per call all belonged to that machine's own unrelated guard hooks.
+
+What one invocation costs (Windows PowerShell 5.1, warm, median of 11 runs, 2026-08-06):
+
+| Step | Wall | CPU |
+|---|---:|---:|
+| `powershell.exe -NoProfile -Command exit`, the floor | 135ms | 188ms |
+| the script up to the exe call (process start, then parse stdin) | 208ms | 240ms |
+| `SessionDeck.exe session status ...` alone, pipe round trip included | 154ms | 67ms |
+| **the whole bridge, one event, end to end** | **422ms** | **~310ms** |
+
+The exe on its own is already over the sub-100ms target in `CliClient`, and PowerShell roughly
+doubles it. What keeps that from mattering is how rarely it happens. Over 3 days on one machine,
+136 sessions and 15,489 tool calls:
+
+| Event | Invocations |
+|---|---:|
+| `UserPromptSubmit` | 1,126 |
+| `Stop` | 786 |
+| `SessionStart` + `SessionEnd` | ~272 |
+| `PermissionRequest` | 3 |
+| `PreToolUse` + `PostToolUse` (matched) | 2 |
+
+About 2,200 invocations in 72 hours: **0.5 per minute for the whole machine**, near 0.3% of one
+core. Replacing PowerShell with a `sessiondeck hook <Event>` subcommand that reads the payload
+itself would save roughly 250ms per event, which is a quarter of a second per prompt and per
+turn end, in exchange for a new subcommand and a JSON parser in the exe. Measured that way it
+does not pay, which is why the bridge still looks like this. If the registered set ever grows to
+something that fires per tool call, this arithmetic changes and the subcommand becomes the
+obvious move.
+
 ### Detecting "waiting" from the transcript — what the hooks alone can't give
 
 In the **built-in Claude Code UI inside VSCode** (as opposed to the terminal) `Notification` **does not fire**, and per Anthropic that is deliberate, not a bug: its semantics are tied to the TUI, and `PermissionRequest` is given in its place. The result at the time was that when Claude stopped and waited, the card stayed blue "working" (issue 2026-07-20) — and that is where the transcript scanner came from.
