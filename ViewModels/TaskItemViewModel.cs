@@ -23,6 +23,16 @@ public sealed class TaskItemViewModel
     public bool HasStatus => Status.Length > 0;
     public bool HasUrl => Url.Length > 0;
     public bool HasWorkspace => WorkspacePath.Length > 0;
+
+    /// <summary>Search hit. Everything printed on the card counts, id included: the id is the
+    /// agenda number, which is how a task is usually referred to and therefore the most likely
+    /// thing to be typed. An empty query matches everything (no filter).</summary>
+    public bool Matches(string query)
+        => query.Length == 0
+           || Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+           || Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+           || Status.Contains(query, StringComparison.OrdinalIgnoreCase)
+           || Description.Contains(query, StringComparison.OrdinalIgnoreCase);
     /// <summary>The workspace/sessions button exists when there is anywhere to go.</summary>
     public bool HasTarget => HasWorkspace || Sessions.Count > 0;
 

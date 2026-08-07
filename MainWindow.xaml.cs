@@ -854,35 +854,14 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _contentSearchCts;
     private DispatcherTimer? _searchDebounce;
 
-    private void SearchToggle_Changed(object sender, RoutedEventArgs e)
+    /// <summary>Point the one search box at whatever is on screen, and say so on its label.
+    /// Called whenever the tasks page opens or closes.</summary>
+    private void UpdateSearchScope()
     {
-        if (_syncingUi || _initializing) return;
-        SetSearchRowVisible(SearchToggleButton.IsChecked == true);
-    }
-
-    private void SearchClose_Click(object sender, RoutedEventArgs e)
-        => SetSearchRowVisible(false);
-
-    private void SearchBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (e.Key == System.Windows.Input.Key.Escape) SetSearchRowVisible(false);
-    }
-
-    private void SetSearchRowVisible(bool visible)
-    {
-        // Keep the 🔍 toggle's pressed-state in sync when closed via ✕ / Escape.
-        _syncingUi = true;
-        SearchToggleButton.IsChecked = visible;
-        _syncingUi = false;
-        SearchRow.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        // Mutual exclusion (T-0116): the tasks-page button is dead while search is up.
-        Vm.TasksPanel.PageBlocked = visible;
-        if (visible)
-        {
-            SearchBox.Focus();
-            SearchBox.SelectAll();
-        }
-        ApplySearch();                       // hidden row = filter off (query kept for reopen)
+        bool tasks = Vm.TasksPanel.PageOpen;
+        SearchScopeLabel.Text = tasks ? "🔍 Tasks" : "🔍 Sessions";
+        SearchContentCheck.Visibility = tasks ? Visibility.Collapsed : Visibility.Visible;
+        ApplySearch();
     }
 
     private void Search_Changed(object sender, TextChangedEventArgs e)
@@ -909,8 +888,14 @@ public partial class MainWindow : Window
 
     private void ApplySearch()
     {
-        _searchQuery = SearchRow.Visibility == Visibility.Visible ? SearchBox.Text.Trim() : "";
-        _searchInContent = SearchContentCheck.IsChecked == true;
+        _searchQuery = SearchBox.Text.Trim();
+        // Both targets are filtered on every keystroke even though only one is on screen:
+        // the other is a handful of string compares, and keeping a single query in sync with
+        // two filters is where a stale-state bug would live.
+        Vm.TasksPanel.Filter = _searchQuery;
+        // Transcript scanning is session-only and expensive — never start it for a query
+        // typed at the task list.
+        _searchInContent = SearchContentCheck.IsChecked == true && !Vm.TasksPanel.PageOpen;
         if (_searchQuery.Length > 0 && _searchInContent)
         {
             StartContentSearch();            // async; re-applies visibility when done

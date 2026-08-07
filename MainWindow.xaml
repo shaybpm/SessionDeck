@@ -78,10 +78,6 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
-                    <ToggleButton x:Name="SearchToggleButton" Content="🔍" FontSize="13"
-                                  ToolTip="Search and filter"
-                                  Style="{StaticResource IconToggle}"
-                                  Checked="SearchToggle_Changed" Unchecked="SearchToggle_Changed"/>
                     <ToggleButton x:Name="PinTopToggle" Content="📌" FontSize="13"
                                   ToolTip="Pin: keep the window always on top"
                                   Style="{StaticResource IconToggle}"
@@ -163,24 +159,43 @@
             </DockPanel>
         </Border>
 
-        <!-- search / filter row (feature 2026-07-19): toggled by the 🔍 button; filters
-             workspaces + sessions by title/detail, optionally also by transcript content -->
-        <Border x:Name="SearchRow" DockPanel.Dock="Top" Background="#FF1B1B1B" Padding="8,5"
-                Visibility="Collapsed">
+        <!-- Search / filter row (feature 2026-07-19; made permanent 07-08-2026). It is always
+             on screen and always filters WHAT IS CURRENTLY SHOWING: the task list while the
+             tasks page is up, workspaces + sessions otherwise. It used to be a 🔍 toggle that
+             was mutually exclusive with the tasks page, so on the page there was no search at
+             all and nothing said why. The scope label spells out which of the two is being
+             filtered, since the box itself looks identical either way. -->
+        <Border x:Name="SearchRow" DockPanel.Dock="Top" Background="#FF1B1B1B" Padding="8,5">
             <DockPanel LastChildFill="True">
-                <Button DockPanel.Dock="Right" Content="✕" ToolTip="Close the search row"
-                        Background="Transparent" Foreground="#FFAAAAAA" BorderThickness="0"
-                        Padding="8,2" Cursor="Hand" Click="SearchClose_Click"/>
+                <TextBlock x:Name="SearchScopeLabel" DockPanel.Dock="Left" Text="🔍 Sessions"
+                           Foreground="#FF9A9A9A" FontSize="12" VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+                <!-- Transcript search belongs to sessions only; hidden on the tasks page. -->
                 <CheckBox x:Name="SearchContentCheck" DockPanel.Dock="Right" Content="Search content too"
                           Foreground="#FFCCCCCC" VerticalAlignment="Center" Margin="14,0,6,0"
                           Checked="SearchContent_Changed" Unchecked="SearchContent_Changed"
                           ToolTip="Search inside the sessions' transcript files (jsonl) as well"/>
+                <!-- match count, tasks only: a narrow query that hides everything must not
+                     look like a panel that lost its content -->
+                <TextBlock x:Name="SearchCountLabel" DockPanel.Dock="Right" FontSize="11"
+                           Foreground="#FF888888" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Text="{Binding TasksPanel.FilterNote}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TasksPanel.HasFilterNote}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <!-- the query is user input and is often Hebrew: direction follows what is typed -->
                 <TextBox x:Name="SearchBox" VerticalContentAlignment="Center" FontSize="13"
                          Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF444444"
                          CaretBrush="White" Padding="6,3"
                          FlowDirection="{Binding Text, RelativeSource={RelativeSource Self}, Converter={StaticResource Rtl}}"
-                         TextChanged="Search_Changed" KeyDown="SearchBox_KeyDown"/>
+                         TextChanged="Search_Changed"/>
             </DockPanel>
         </Border>
 

@@ -53,8 +53,24 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
+                    <!-- A card that navigates (it has a url: a parent that drills into its
+                         own level, or the producer's back/toggle cards) is painted as a
+                         hyperlink — blue and underlined. The emoji marker a producer may put
+                         in the name was not enough to spot while scanning (feedback
+                         07-08-2026); colour reads before the eye reaches the glyph. -->
                     <TextBlock Text="{Binding Name}" Foreground="White" FontSize="12"
-                               FontWeight="SemiBold" TextWrapping="Wrap"/>
+                               FontWeight="SemiBold" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasUrl}" Value="True">
+                                        <Setter Property="Foreground" Value="#FF6FB7FF"/>
+                                        <Setter Property="TextDecorations" Value="Underline"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </DockPanel>
             </Grid>
             <TextBlock Text="{Binding Description}" Foreground="#FF999999" FontSize="10.5"

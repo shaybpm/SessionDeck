@@ -77,12 +77,13 @@ public partial class MainWindow
 
     public void ShowTasksPage()
     {
-        if (!Vm.TasksPanel.Enabled || Vm.TasksPanel.PageBlocked) return;
+        if (!Vm.TasksPanel.Enabled) return;
         Vm.TasksPanel.PageOpen = true;
         DeckView.Visibility = Visibility.Collapsed;
         TasksPage.Visibility = Visibility.Visible;
-        // Mutual exclusion (T-0116): no search while the tasks page is up.
-        SearchToggleButton.IsEnabled = false;
+        // The permanent search row now follows the page instead of being locked out by it
+        // (the T-0116 mutual exclusion was removed 07-08-2026).
+        UpdateSearchScope();
     }
 
     public void CloseTasksPage()
@@ -90,12 +91,23 @@ public partial class MainWindow
         Vm.TasksPanel.PageOpen = false;
         TasksPage.Visibility = Visibility.Collapsed;
         DeckView.Visibility = Visibility.Visible;
-        SearchToggleButton.IsEnabled = true;
+        UpdateSearchScope();
     }
 
+    /// <summary>Escape, in one place. It has two jobs now that the search row is permanent,
+    /// and the order matters: clear a query first, close the page only on an empty box — so a
+    /// mistyped search never costs the user the view they were searching in. Both live here
+    /// rather than on the TextBox because a window-level PreviewKeyDown tunnels down BEFORE
+    /// the box's own KeyDown ever bubbles, and would otherwise always win.</summary>
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && Vm.TasksPanel.PageOpen)
+        if (e.Key != Key.Escape) return;
+        if (SearchBox.Text.Length > 0)
+        {
+            SearchBox.Clear();
+            e.Handled = true;
+        }
+        else if (Vm.TasksPanel.PageOpen)
         {
             CloseTasksPage();
             e.Handled = true;

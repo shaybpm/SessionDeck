@@ -18,6 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file",
+        "prompt",
     };
 
     private readonly MainWindow _window;
@@ -198,7 +199,13 @@ public sealed class CommandExecutor
                 foreach (var (k, v) in a.Options) rest.Options[k] = v;
                 var (wsNew, errNew) = ResolveTarget(rest);
                 if (wsNew == null) return Err(errNew!);
-                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew);
+                // --prompt lands in the new session's input box, unsent, exactly as a
+                // click on a tasks-panel card already does. Without it the CLI could
+                // only ever open an EMPTY session, so anything outside the WPF panel
+                // (a protocol handler, a script, another tool) had no way to say what
+                // the session is for.
+                a.Options.TryGetValue("prompt", out var promptNew);
+                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew, promptNew);
                 return okNew ? Ok($"opening a new session in workspace {wsNew.Id}") : Err(msgNew);
             }
             case "open":

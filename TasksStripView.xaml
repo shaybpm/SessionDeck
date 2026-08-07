@@ -41,17 +41,11 @@
         <DockPanel Margin="5,4">
             <Button DockPanel.Dock="Top" Content="📋" FontSize="14" ToolTip="Tasks page"
                     Background="Transparent" Foreground="White" BorderThickness="0"
-                    Padding="2,3" Cursor="Hand" Click="OpenPage_Click"
-                    IsEnabled="{Binding TasksPanel.PageButtonEnabled}">
+                    Padding="2,3" Cursor="Hand" Click="OpenPage_Click">
                 <Button.Style>
                     <!-- BasedOn keeps the app-wide rounded template -->
                     <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                         <Setter Property="Background" Value="Transparent"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.35"/>
-                            </Trigger>
-                        </Style.Triggers>
                     </Style>
                 </Button.Style>
             </Button>
