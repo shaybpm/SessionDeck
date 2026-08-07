@@ -87,13 +87,18 @@ if ($hookVer -ne $ver) {
 }
 
 # --- Build & test ---------------------------------------------------------------
-Step "Publish (self-contained single file)"
+Step "Publish (self-contained, one file per assembly)"
 $pubDir = Join-Path $repo 'bin\Release\net10.0-windows\win-x64\publish'
 # Incremental publish silently drops Content files (hooks\) from the output dir
 # once they were published before (MSBuild up-to-date tracking) - always start fresh.
 if (Test-Path $pubDir) { Remove-Item $pubDir -Recurse -Force }
-dotnet publish -c Release -r win-x64 --self-contained `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --nologo -v quiet
+# Deliberately NOT PublishSingleFile. Bundling the runtime produced a 140MB SessionDeck.exe,
+# and every install rewrote all of it: explorer.exe then burned a whole core on 200,000+ soft
+# page faults per second and stalled the machine for about a minute, measured on eight installs
+# (agenda item 4.13.18). Spread over ~200 files the same upgrade rewrites only the assemblies
+# that actually changed - typically SessionDeck.dll alone - and install.ps1 skips the rest by
+# content hash. Still self-contained, so the zip needs no .NET runtime on the target machine.
+dotnet publish -c Release -r win-x64 --self-contained --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { Fail "dotnet publish failed." }
 $pubExe = Join-Path $pubDir 'SessionDeck.exe'
 
@@ -147,8 +152,10 @@ $stage = Join-Path $repo "publish\SessionDeck-$ver-win-x64"
 $zip = "$stage.zip"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-Copy-Item $pubExe $stage
-Copy-Item (Join-Path $pubDir 'hooks') $stage -Recurse
+# The whole publish directory, not just the exe: without single-file the runtime assemblies
+# and SessionDeck.dll sit beside it and the app does not start without them. hooks\ is in
+# there too, as a Content item of the project.
+Copy-Item (Join-Path $pubDir '*') $stage -Recurse
 Copy-Item $vsix $stage
 Copy-Item (Join-Path $repo 'install.ps1'), (Join-Path $repo 'uninstall.ps1') $stage
 Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force

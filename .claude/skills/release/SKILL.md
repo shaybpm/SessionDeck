@@ -55,8 +55,8 @@ starts fresh for the same reason.
 1. Preflight guards (above).
 2. Syncs the `# Version:` header in `hooks/sessiondeck-hook.ps1` from the csproj, and
    commits that sync if it changed anything.
-3. `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`
-   into a freshly deleted publish directory.
+3. `dotnet publish -c Release -r win-x64 --self-contained` into a freshly deleted publish
+   directory. **Self-contained but not single-file, deliberately** — see Notes.
 4. Verifies the published exe's version and the hook script's BOM.
 5. Runs `tests/install-hooks.tests.ps1` **against the published exe** — not the debug
    build. 38 cases; any failure blocks the release.
@@ -75,7 +75,13 @@ starts fresh for the same reason.
 - The three versions (app / extension / hooks) move independently. `install.ps1` prints
   all three at the end of an install so a mismatch is visible rather than mysterious.
 - Packaging is deliberately self-contained (~150MB): it must work on a machine with no
-  .NET installed.
+  .NET installed. It is just as deliberately **not** `PublishSingleFile`. Bundling the
+  runtime made a 140MB `SessionDeck.exe`, and since `install.ps1` rewrote it whole every
+  time, each install stalled the machine for about a minute: `explorer.exe` burned a core
+  on 200,000+ soft page faults per second, measured across eight installs (agenda item
+  4.13.18). Spread over ~200 files, an upgrade rewrites only what changed — usually
+  `SessionDeck.dll` alone — because `install.ps1` compares content hashes before writing.
+  If single-file is ever restored, that installer optimisation dies with it.
 - There is no auto-update and no update notification. That is a conscious choice for a
   tool used by a handful of people — telling people about a new release is manual.
 

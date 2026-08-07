@@ -28,6 +28,16 @@ function Invoke-SessionDeck([string]$ExePath, [string]$Arguments) {
     }
 }
 
+# True when the destination already holds byte-identical content. Length first because it
+# settles almost every mismatch for free; the hash is what makes the check trustworthy, since
+# `dotnet publish` re-stamps the write time of every runtime assembly on every run while the
+# bytes stay identical - comparing timestamps would rewrite the entire ~150MB payload each time.
+function Test-SameContent([string]$Source, [string]$Destination) {
+    if (-not (Test-Path $Destination)) { return $false }
+    if ((Get-Item $Source).Length -ne (Get-Item $Destination).Length) { return $false }
+    return (Get-FileHash $Source -Algorithm SHA256).Hash -eq (Get-FileHash $Destination -Algorithm SHA256).Hash
+}
+
 if (-not (Test-Path (Join-Path $src 'SessionDeck.exe'))) {
     Write-Error "SessionDeck.exe not found next to install.ps1 - run this script from the extracted release zip."
 }
@@ -58,9 +68,28 @@ if (Test-Path $InstallDir) {
 if ($resolvedSrc -ieq $resolvedDst) {
     Write-Host "Running from the install directory itself - skipping the copy step."
 } else {
+    # Write only what actually changed. An upgrade normally touches SessionDeck.dll and little
+    # else; rewriting all ~200 files unconditionally is what used to stall the machine for about
+    # a minute per install - explorer.exe at 200,000+ soft page faults per second (agenda item
+    # 4.13.18). Files the source no longer carries are left in place on purpose: the .NET host
+    # loads by deps.json, so a leftover assembly is inert, and deleting by pattern here would be
+    # the one step in this script capable of destroying something it did not put there.
     Write-Host "Installing to $InstallDir ..."
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Copy-Item -Path (Join-Path $src '*') -Destination $InstallDir -Recurse -Force
+    $written = 0
+    $skipped = 0
+    $writtenBytes = 0
+    foreach ($file in Get-ChildItem -Path $resolvedSrc -Recurse -File) {
+        $relative = $file.FullName.Substring($resolvedSrc.Length + 1)
+        $target = Join-Path $resolvedDst $relative
+        if (Test-SameContent $file.FullName $target) { $skipped++; continue }
+        $targetDir = Split-Path $target -Parent
+        if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Force -Path $targetDir | Out-Null }
+        Copy-Item -Path $file.FullName -Destination $target -Force
+        $written++
+        $writtenBytes += $file.Length
+    }
+    Write-Host ("  wrote {0} file(s), {1:N1} MB; {2} already up to date." -f $written, ($writtenBytes / 1MB), $skipped)
 }
 $exe = Join-Path $InstallDir 'SessionDeck.exe'
 
