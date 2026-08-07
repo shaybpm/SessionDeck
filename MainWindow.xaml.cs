@@ -900,6 +900,8 @@ public partial class MainWindow : Window
         bool tasks = Vm.TasksPanel.PageOpen;
         Vm.TasksPanel.Filter = tasks ? query : "";
         _searchQuery = tasks ? "" : query;
+        LogService.Debug("search", $"q=\"{query}\" scope={(tasks ? "tasks" : "deck")} " +
+                                   $"shown={Vm.TasksPanel.OtherTasks.Count}");
         // Transcript scanning is session-only and expensive — never start it for a query
         // typed at the task list.
         _searchInContent = SearchContentCheck.IsChecked == true && !tasks;
