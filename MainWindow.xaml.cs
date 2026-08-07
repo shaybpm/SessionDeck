@@ -861,6 +861,10 @@ public partial class MainWindow : Window
         bool tasks = Vm.TasksPanel.PageOpen;
         SearchScopeLabel.Text = tasks ? "🔍 Tasks" : "🔍 Sessions";
         SearchContentCheck.Visibility = tasks ? Visibility.Collapsed : Visibility.Visible;
+        // A query belongs to the list it was typed against. Carrying "1284" out of the task
+        // list and onto the deck would silently hide every workspace that does not contain
+        // it, which reads as a deck that lost its cards.
+        SearchBox.Clear();
         ApplySearch();
     }
 
@@ -888,14 +892,17 @@ public partial class MainWindow : Window
 
     private void ApplySearch()
     {
-        _searchQuery = SearchBox.Text.Trim();
-        // Both targets are filtered on every keystroke even though only one is on screen:
-        // the other is a handful of string compares, and keeping a single query in sync with
-        // two filters is where a stale-state bug would live.
-        Vm.TasksPanel.Filter = _searchQuery;
+        // The query drives EXACTLY ONE target: the one on screen. Feeding it to both looks
+        // reasonable and is not — a task query matches no session, so the tasks page's own
+        // live-sessions panel emptied itself the moment anything was typed (caught in a
+        // window snapshot, 07-08-2026).
+        string query = SearchBox.Text.Trim();
+        bool tasks = Vm.TasksPanel.PageOpen;
+        Vm.TasksPanel.Filter = tasks ? query : "";
+        _searchQuery = tasks ? "" : query;
         // Transcript scanning is session-only and expensive — never start it for a query
         // typed at the task list.
-        _searchInContent = SearchContentCheck.IsChecked == true && !Vm.TasksPanel.PageOpen;
+        _searchInContent = SearchContentCheck.IsChecked == true && !tasks;
         if (_searchQuery.Length > 0 && _searchInContent)
         {
             StartContentSearch();            // async; re-applies visibility when done
