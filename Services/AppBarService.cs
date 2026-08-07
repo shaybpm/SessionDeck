@@ -20,6 +20,23 @@ public sealed class AppBarService
     private bool _hasSavedBounds;
     private bool _selfPositioning;
     private double _customFraction = 1.0 / 3;
+    private RECT _appliedRect;
+    private bool _hasAppliedRect;
+
+    /// <summary>
+    /// Pixels of work area the zone must always leave on its monitor.
+    /// A reservation that takes the monitor whole is accepted by the shell and then spins its
+    /// own work-area bookkeeping forever: measured 08-08-2026 with Zone=Full on a 1080x1920
+    /// display, explorer.exe sat at 100-430% of a core on up to 1,004,675 soft page faults per
+    /// second for as long as the app ran, and went quiet within a second of it exiting. The
+    /// cliff is exactly at zero - the identical test leaving one pixel over is clean - so this
+    /// only has to be non-zero. 16px is invisible in the zone and not sitting on the edge.
+    /// Agenda item 4.13.18.
+    /// </summary>
+    private const int MinFreeWorkAreaPx = 16;
+
+    private static bool SameRect(RECT a, RECT b)
+        => a.Left == b.Left && a.Top == b.Top && a.Right == b.Right && a.Bottom == b.Bottom;
 
     public void Attach(HwndSource source)
     {
@@ -61,6 +78,7 @@ public sealed class AppBarService
         var abd = NewData();
         NativeMethods.SHAppBarMessage(NativeMethods.ABM_REMOVE, ref abd);
         _registered = false;
+        _hasAppliedRect = false;   // a fresh registration must post its reservation again
         if (_hasSavedBounds)
         {
             NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero,
@@ -86,21 +104,33 @@ public sealed class AppBarService
         // Never reserve a zone narrower than the window's MinWidth: below it the
         // toolbar (incl. the zone combo itself) gets clipped and the user cannot
         // un-zone from the UI (bug 2026-07-22 — 13% custom zone buried the controls).
-        width = Math.Clamp(width, Math.Min(MinZoneWidthPx(), mon.Width), mon.Width);
+        // And never wider than the monitor less MinFreeWorkAreaPx — see that constant for
+        // what a zero-work-area reservation does to the shell.
+        int maxWidth = Math.Max(1, mon.Width - MinFreeWorkAreaPx);
+        width = Math.Clamp(width, Math.Min(MinZoneWidthPx(), maxWidth), maxWidth);
 
         var abd = NewData();
         abd.uEdge = edge;
         abd.rc = new RECT { Left = mon.Left, Top = mon.Top, Right = mon.Right, Bottom = mon.Bottom };
-        if (_mode != ZoneMode.Full)
-        {
-            if (rightEdge) abd.rc.Left = mon.Right - width;
-            else abd.rc.Right = mon.Left + width;
-        }
+        // Full is narrowed like every other mode now: it is the widest zone, not an unbounded
+        // one. Letting it through as the whole monitor rect is what left the display with no
+        // work area at all.
+        if (rightEdge) abd.rc.Left = mon.Right - width;
+        else abd.rc.Right = mon.Left + width;
 
         NativeMethods.SHAppBarMessage(NativeMethods.ABM_QUERYPOS, ref abd);
         // QUERYPOS may trim for the taskbar/other appbars; re-assert our width from the granted edge.
         if (edge == NativeMethods.ABE_LEFT) abd.rc.Right = Math.Min(abd.rc.Left + width, mon.Right);
         else abd.rc.Left = Math.Max(abd.rc.Right - width, mon.Left);
+
+        // Only touch the shell when the reservation actually moved. Every ABM_SETPOS and every
+        // reposition of a registered appbar window makes the shell recompute and answer with
+        // ABN_POSCHANGED, which lands in WndProc and calls this method straight back: measured
+        // 08-08-2026 at 250 callbacks per second. Re-acting only on a real change breaks that
+        // ping-pong whatever the shell replies. Agenda item 4.13.18.
+        if (_hasAppliedRect && SameRect(_appliedRect, abd.rc)) return;
+        _appliedRect = abd.rc;
+        _hasAppliedRect = true;
 
         NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
         // Win10/11 windows carry invisible resize borders: the visible (DWM) frame is
