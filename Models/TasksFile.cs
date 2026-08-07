@@ -28,4 +28,9 @@ public class TaskEntry
     public string? Workspace { get; set; }           // full folder path — matched to a card by path
     public List<string> Sessions { get; set; } = new();
     public string? Url { get; set; }                 // opened via ShellExecute (e.g. obsidian://)
+    /// <summary>Label for the url button. The deck cannot know what a url MEANS — an
+    /// external document, or (as this deck's producer uses it) a drill into the card's own
+    /// sub-tasks — and calling all of them "Open task" made a navigation card read as a unit
+    /// of work. The producer knows, so it may say. Missing = the generic label.</summary>
+    public string? UrlLabel { get; set; }
 }

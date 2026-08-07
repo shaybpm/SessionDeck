@@ -112,7 +112,11 @@
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Content="🔗 Open task" Click="Url_Click"
+                <!-- The producer names this button (UrlButtonText): only it knows whether the
+                     url is a document or a drill into this card's sub-tasks. Its text is
+                     external and often Hebrew, so its direction follows the text. -->
+                <Button Content="{Binding UrlButtonText}" Click="Url_Click"
+                        FlowDirection="{Binding UrlButtonText, Converter={StaticResource Rtl}}"
                         ToolTip="{Binding Url}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

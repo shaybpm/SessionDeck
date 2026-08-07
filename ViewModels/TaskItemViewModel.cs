@@ -18,6 +18,7 @@ public sealed class TaskItemViewModel
     public string WorkspacePath { get; init; } = "";
     public IReadOnlyList<string> Sessions { get; init; } = Array.Empty<string>();
     public string Url { get; init; } = "";
+    public string UrlLabel { get; init; } = "";
 
     public bool HasDescription => Description.Length > 0;
     public bool HasStatus => Status.Length > 0;
@@ -37,6 +38,10 @@ public sealed class TaskItemViewModel
     public bool HasTarget => HasWorkspace || Sessions.Count > 0;
 
     public string TargetButtonText => Sessions.Count > 0 ? $"▶ Sessions ({Sessions.Count})" : "▶ New session";
+
+    /// <summary>What the url button says. The producer's own wording wins, because only it
+    /// knows whether the link is a document or a level of the tree.</summary>
+    public string UrlButtonText => UrlLabel.Length > 0 ? UrlLabel : "🔗 Open task";
 
     /// <summary>Status color resolved from the document's statusColors map at build time;
     /// a status without a color (or no status) renders neutral.</summary>
@@ -73,6 +78,7 @@ public sealed class TaskItemViewModel
             WorkspacePath = entry.Workspace?.Trim() ?? "",
             Sessions = entry.Sessions.Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
             Url = entry.Url?.Trim() ?? "",
+            UrlLabel = entry.UrlLabel?.Trim() ?? "",
             StatusBrush = brush,
         };
     }
