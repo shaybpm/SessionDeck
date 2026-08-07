@@ -104,7 +104,7 @@ public sealed class AppBarService
         // Never reserve a zone narrower than the window's MinWidth: below it the
         // toolbar (incl. the zone combo itself) gets clipped and the user cannot
         // un-zone from the UI (bug 2026-07-22 — 13% custom zone buried the controls).
-        // And never wider than the monitor less MinFreeWorkAreaPx — see that constant for
+        // And never wider than the monitor less MinFreeWorkAreaPx. See that constant for
         // what a zero-work-area reservation does to the shell.
         int maxWidth = Math.Max(1, mon.Width - MinFreeWorkAreaPx);
         width = Math.Clamp(width, Math.Min(MinZoneWidthPx(), maxWidth), maxWidth);
@@ -146,7 +146,7 @@ public sealed class AppBarService
         int cy = abd.rc.Height + inset.Top + inset.Bottom;
 
         // Move it only when it is not already exactly there. Repositioning a registered appbar
-        // window is itself enough to make the shell recompute and notify us again — measured at
+        // window is itself enough to make the shell recompute and notify us again, measured at
         // 250 callbacks per second on 08-08-2026, with no ABM_SETPOS involved at all. The
         // comparison is against where the window actually IS, not against what we last asked
         // for: anything else that moves or resizes it must still get snapped back, which is the

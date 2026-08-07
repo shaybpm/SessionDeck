@@ -331,7 +331,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// <summary>
     /// The session is running or asking for something: working, waiting or error. What the
     /// toolbar's "active only" filter keeps on screen (Shay, 08-08-2026). `done`, `idle` and
-    /// `he` are deliberately out — they are sessions that finished and want nothing, which is
+    /// `he` are deliberately out: they are sessions that finished and want nothing, which is
     /// exactly the noise the filter exists to remove.
     /// </summary>
     public bool IsLive => !_closed && !Phantom &&

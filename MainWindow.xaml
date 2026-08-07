@@ -87,7 +87,7 @@
                                   Style="{StaticResource IconToggle}"
                                   Checked="ShowHidden_Changed" Unchecked="ShowHidden_Changed"/>
                     <ToggleButton x:Name="ActiveOnlyToggle" Content="⚡" FontSize="13"
-                                  ToolTip="Running sessions only — hide idle, done and finished ones (expand a card to see all of it)"
+                                  ToolTip="Running sessions only: hide idle, done and finished ones (expand a card to see all of it)"
                                   Style="{StaticResource IconToggle}"
                                   Checked="ActiveOnly_Changed" Unchecked="ActiveOnly_Changed"/>
                     <!-- Card text size. Plain buttons rather than toggles: this is a value

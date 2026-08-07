@@ -34,7 +34,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private double _cardWidth = MinCardWidth;
     /// <summary>Width of one workspace card, recomputed from the deck viewport so a row fills
     /// it exactly (Shay, 08-08-2026: "the squares don't take up the space there is"). Runtime
-    /// only — it follows the window and is never persisted.</summary>
+    /// only: it follows the window and is never persisted.</summary>
     public double CardWidth
     {
         get => _cardWidth;

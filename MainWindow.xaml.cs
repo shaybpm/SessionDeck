@@ -844,7 +844,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Fit whole cards across the deck viewport. Cards used to be a fixed 430px inside a
-    /// WrapPanel, so anything left over after the last card that fit was dead space — on a
+    /// WrapPanel, so anything left over after the last card that fit was dead space. On a
     /// 1078px-wide deck that was two cards and a 148px gap (Shay, 08-08-2026).
     ///
     /// Take as many columns as fit at the design width, then share the viewport out between

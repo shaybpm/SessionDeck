@@ -251,7 +251,7 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     public bool SelfMatchesSearch { get; set; } = true;
 
     /// <summary>Toolbar "active only" filter; set by the controller for every workspace.
-    /// Expanding a card overrides it — expanding is an explicit "show me everything here",
+    /// Expanding a card overrides it, because expanding is an explicit "show me everything here",
     /// and it is what makes the filter safe to leave on.</summary>
     public bool ActiveOnly { get; set; }
 

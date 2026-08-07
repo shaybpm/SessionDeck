@@ -108,7 +108,7 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
     /// <summary>Multiplier on every font size of a card, driven by the toolbar's A+ / A− and
     /// persisted. It started life scoped to the task cards on 07-08-2026 and Shay widened it
     /// to the workspace and session cards the next day, so despite living here it now drives
-    /// the whole deck — `WorkspaceCardView` binds this same property. It stays on this view
+    /// the whole deck. `WorkspaceCardView` binds this same property. It stays on this view
     /// model, and the config key stays `TaskFontScale`, so the size already chosen survives
     /// the change instead of silently resetting to 1.0.</summary>
     public double FontScale
