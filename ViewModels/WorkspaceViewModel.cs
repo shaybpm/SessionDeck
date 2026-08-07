@@ -250,11 +250,17 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// <summary>The workspace's own fields match the active search (true when no search).</summary>
     public bool SelfMatchesSearch { get; set; } = true;
 
+    /// <summary>Toolbar "active only" filter; set by the controller for every workspace.
+    /// Expanding a card overrides it — expanding is an explicit "show me everything here",
+    /// and it is what makes the filter safe to leave on.</summary>
+    public bool ActiveOnly { get; set; }
+
     public void RefreshSessionVisibility()
     {
         foreach (var s in Sessions)
         {
-            bool normal = (!s.Closed || _expanded) && !s.Phantom;
+            bool live = !ActiveOnly || _expanded || s.IsLive;
+            bool normal = (!s.Closed || _expanded) && !s.Phantom && live;
             // A matching session is surfaced even if closed; a matching workspace keeps
             // its normal view; otherwise the session is filtered out.
             s.Visible = SearchPredicate == null ? normal

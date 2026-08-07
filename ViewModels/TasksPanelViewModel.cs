@@ -105,10 +105,12 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
     public const double MaxFontScale = 2.0;
 
     private double _fontScale = 1.0;
-    /// <summary>Multiplier on every font size of a task card, driven by the toolbar's A+ /
-    /// A− and persisted. Lives on the tasks panel and not on the deck at large because that
-    /// is the scope Shay asked for: the task list is the text he reads, the workspace cards
-    /// are mostly chrome.</summary>
+    /// <summary>Multiplier on every font size of a card, driven by the toolbar's A+ / A− and
+    /// persisted. It started life scoped to the task cards on 07-08-2026 and Shay widened it
+    /// to the workspace and session cards the next day, so despite living here it now drives
+    /// the whole deck — `WorkspaceCardView` binds this same property. It stays on this view
+    /// model, and the config key stays `TaskFontScale`, so the size already chosen survives
+    /// the change instead of silently resetting to 1.0.</summary>
     public double FontScale
     {
         get => _fontScale;

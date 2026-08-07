@@ -48,7 +48,7 @@
                              when the first row runs out of room. -->
                         <WrapPanel>
                             <TextBlock Text="{Binding DisplayTitle}" Foreground="White" FontWeight="Bold"
-                                       FontSize="14" MaxWidth="300" TextTrimming="CharacterEllipsis"
+                                       FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=14}" MaxWidth="300" TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center"
                                        FlowDirection="{Binding DisplayTitle, Converter={StaticResource Rtl}}"
                                        ToolTip="{Binding TitleTooltip}"/>
@@ -65,7 +65,7 @@
                                         </Style>
                                     </Border.Style>
                                     <!-- branch names come from git and are not always Latin -->
-                                    <TextBlock Foreground="#FFDDDDDD" FontSize="11" MaxWidth="280"
+                                    <TextBlock Foreground="#FFDDDDDD" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" MaxWidth="280"
                                                TextTrimming="CharacterEllipsis"
                                                FlowDirection="{Binding Branch, Converter={StaticResource Rtl}}">
                                         <Run Text="&#x2387;"/> <Run Text="{Binding Branch}"/>
@@ -83,13 +83,13 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <TextBlock Foreground="#FFDDDDDD" FontSize="11">
+                                    <TextBlock Foreground="#FFDDDDDD" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}">
                                         <Run Text="📑"/> <Run Text="{Binding ClaudeTabCount, Mode=OneWay}"/>
                                     </TextBlock>
                                 </Border>
                             </StackPanel>
                         </WrapPanel>
-                        <TextBlock Text="{Binding Description}" Foreground="#FFAAAAAA" FontSize="11"
+                        <TextBlock Text="{Binding Description}" Foreground="#FFAAAAAA" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"
                                    TextTrimming="CharacterEllipsis"
                                    FlowDirection="{Binding Description, Converter={StaticResource Rtl}}">
                             <TextBlock.Style>
@@ -221,13 +221,13 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <!-- primary: the VSCode tab title; wraps instead of truncating -->
-                                    <TextBlock Text="{Binding DisplayTitle}" Foreground="White" FontSize="12"
+                                    <TextBlock Text="{Binding DisplayTitle}" Foreground="White" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=12}"
                                                TextWrapping="Wrap"
                                                FlowDirection="{Binding DisplayTitle, Converter={StaticResource Rtl}}"/>
                                     <!-- secondary session title (AutoTitle via SubTitle) removed by request
                                          2026-07-19; the VM property still exists. To restore, re-add here a
                                          TextBlock bound to SubTitle (wrap + Rtl converter, collapsed when ""). -->
-                                    <TextBlock Text="{Binding SubText}" Foreground="#FF999999" FontSize="10"
+                                    <TextBlock Text="{Binding SubText}" Foreground="#FF999999" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=10}"
                                                TextTrimming="CharacterEllipsis"
                                                FlowDirection="{Binding SubText, Converter={StaticResource Rtl}}">
                                         <TextBlock.Style>
@@ -243,7 +243,7 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                                             Margin="8,0,0,0">
-                                    <TextBlock Text="📑" FontSize="11" Margin="0,0,6,0"
+                                    <TextBlock Text="📑" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
                                                ToolTip="Open as a tab in VSCode">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
@@ -255,7 +255,7 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <TextBlock Text="{Binding StatusText}" Foreground="#FFBBBBBB" FontSize="11"/>
+                                    <TextBlock Text="{Binding StatusText}" Foreground="#FFBBBBBB" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -299,9 +299,9 @@
                             </Style.Triggers>
                         </Style>
                     </StackPanel.Style>
-                    <TextBlock Text="🔌 No VSCode window open" Foreground="#FF888888" FontSize="14"
+                    <TextBlock Text="🔌 No VSCode window open" Foreground="#FF888888" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=14}"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Text="Click to open the project in VSCode" Foreground="#FF555555" FontSize="11"
+                    <TextBlock Text="Click to open the project in VSCode" Foreground="#FF555555" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"
                                HorizontalAlignment="Center" Margin="0,3,0,0"/>
                 </StackPanel>
             </Grid>

@@ -138,6 +138,7 @@ public partial class MainWindow : Window
         Vm.OpenSessionMaximized = config.OpenSessionMaximized;
         Vm.PermissionWaitToolSeconds = new Dictionary<string, int>(config.PermissionWaitToolSeconds, StringComparer.Ordinal);
         Vm.ShowHidden = config.ShowHidden;
+        Vm.ActiveOnly = config.ActiveSessionsOnly;
         // A config written before this field existed deserializes to the property default,
         // but a hand-edited 0 would clamp to the minimum and look like a shrunk panel with
         // no cause. Anything non-positive means "not set".
@@ -287,6 +288,7 @@ public partial class MainWindow : Window
             OpenSessionMaximized = Vm.OpenSessionMaximized,
             PermissionWaitToolSeconds = new Dictionary<string, int>(Vm.PermissionWaitToolSeconds),
             ShowHidden = Vm.ShowHidden,
+            ActiveSessionsOnly = Vm.ActiveOnly,
             TaskFontScale = Vm.TasksPanel.FontScale,
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
@@ -843,9 +845,19 @@ public partial class MainWindow : Window
     private void ApplyDeckVisibility()
     {
         bool searching = _searchQuery.Length > 0;
+        // "Active only" stands down while searching: a query is an explicit request to find
+        // something, and a filter that quietly hides the hit is worse than no filter.
+        bool activeOnly = Vm.ActiveOnly && !searching;
         foreach (var ws in Vm.Workspaces)
+        {
+            ws.ActiveOnly = activeOnly;
+            ws.RefreshSessionVisibility();
             ws.VisibleInDeck = (!ws.Hidden || Vm.ShowHidden)
-                && (!searching || ws.SelfMatchesSearch || ws.Sessions.Any(SessionMatchesSearch));
+                && (!searching || ws.SelfMatchesSearch || ws.Sessions.Any(SessionMatchesSearch))
+                // A card with nothing live left on it is exactly what the filter is for.
+                // Expanded cards stay, so there is always a way back to the full list.
+                && (!activeOnly || ws.Expanded || ws.Sessions.Any(s => s.IsLive));
+        }
         UpdateEmptyHint();
         RefreshBlinkAndSummary();   // hidden workspaces don't count in the summary dots
     }
@@ -1891,6 +1903,7 @@ public partial class MainWindow : Window
         MaximizeSessionMenuItem.IsChecked = Vm.OpenSessionMaximized;
         NotificationsMenuItem.IsChecked = Vm.WindowsNotifications;
         ShowHiddenToggle.IsChecked = Vm.ShowHidden;
+        ActiveOnlyToggle.IsChecked = Vm.ActiveOnly;
         PinTopToggle.IsChecked = Vm.AlwaysOnTop;
         _syncingUi = false;
         SyncCombosFromVm();
@@ -1989,6 +2002,15 @@ public partial class MainWindow : Window
         if (_syncingUi || _initializing) return;
         Vm.ShowHidden = ShowHiddenToggle.IsChecked == true;
         ApplyDeckVisibility();
+        QueueSave();
+    }
+
+    private void ActiveOnly_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncingUi || _initializing) return;
+        Vm.ActiveOnly = ActiveOnlyToggle.IsChecked == true;
+        ApplyDeckVisibility();
+        SetStatus(Vm.ActiveOnly ? "Showing running sessions only" : "Showing all sessions");
         QueueSave();
     }
 

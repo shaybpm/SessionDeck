@@ -27,6 +27,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { if (_showHidden != value) { _showHidden = value; Raise(); } }
     }
 
+    private bool _activeOnly;
+    /// <summary>Show only sessions that are running or asking for something, and drop the
+    /// workspace cards left with none (Shay, 08-08-2026). See SessionViewModel.IsLive for
+    /// what counts.</summary>
+    public bool ActiveOnly
+    {
+        get => _activeOnly;
+        set { if (_activeOnly != value) { _activeOnly = value; Raise(); } }
+    }
+
     public ZoneMode ZoneMode { get; set; } = ZoneMode.Off;
     public int ZoneMonitor { get; set; }
     /// <summary>Custom-mode width as the user typed it ("2/7", "40%", "0.4") — kept verbatim for display.</summary>
