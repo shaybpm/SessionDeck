@@ -27,6 +27,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { if (_showHidden != value) { _showHidden = value; Raise(); } }
     }
 
+    /// <summary>The width cards were designed at, and the narrowest they are ever drawn.
+    /// It is also what the window's MinWidth is derived from (see MainWindow.xaml).</summary>
+    public const double MinCardWidth = 430;
+
+    private double _cardWidth = MinCardWidth;
+    /// <summary>Width of one workspace card, recomputed from the deck viewport so a row fills
+    /// it exactly (Shay, 08-08-2026: "the squares don't take up the space there is"). Runtime
+    /// only — it follows the window and is never persisted.</summary>
+    public double CardWidth
+    {
+        get => _cardWidth;
+        set { if (Math.Abs(_cardWidth - value) > 0.5) { _cardWidth = value; Raise(); } }
+    }
+
     private bool _activeOnly;
     /// <summary>Show only sessions that are running or asking for something, and drop the
     /// workspace cards left with none (Shay, 08-08-2026). See SessionViewModel.IsLive for

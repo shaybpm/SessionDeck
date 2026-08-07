@@ -251,7 +251,10 @@
             <DockPanel x:Name="DeckView">
                 <local:TasksStripView x:Name="TasksStrip" DockPanel.Dock="Right"/>
                 <Grid>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <!-- SizeChanged on the ScrollViewer, not the ItemsControl: the ItemsControl
+                         is sized BY its content, so asking it how wide it is would feed the card
+                         width back into itself. The viewport is the only independent number. -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" SizeChanged="CardsHost_SizeChanged">
                         <ItemsControl x:Name="CardsHost" ItemsSource="{Binding Workspaces}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -260,7 +263,13 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <local:WorkspaceCardView Width="430"/>
+                                    <!-- Width is computed from the viewport so a row of cards
+                                         fills it exactly instead of leaving a dead margin.
+                                         A WrapPanel cannot stretch its children itself, and a
+                                         UniformGrid that could would also force every card to the
+                                         height of the tallest one, which is worse. -->
+                                    <local:WorkspaceCardView
+                                        Width="{Binding DataContext.CardWidth, RelativeSource={RelativeSource AncestorType=Window}}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

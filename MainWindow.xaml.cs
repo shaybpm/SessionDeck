@@ -842,6 +842,26 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Fit whole cards across the deck viewport. Cards used to be a fixed 430px inside a
+    /// WrapPanel, so anything left over after the last card that fit was dead space — on a
+    /// 1078px-wide deck that was two cards and a 148px gap (Shay, 08-08-2026).
+    ///
+    /// Take as many columns as fit at the design width, then share the viewport out between
+    /// them: the cards only ever grow, never shrink below what they were drawn for, and the
+    /// column count still changes at exactly the same widths it did before.
+    /// </summary>
+    private void CardsHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        const double cardMargin = 16;   // WorkspaceCardView Margin="8" on each side
+        double available = e.NewSize.Width;
+        if (double.IsNaN(available) || available <= 0) return;
+
+        int columns = Math.Max(1, (int)(available / (MainViewModel.MinCardWidth + cardMargin)));
+        Vm.CardWidth = Math.Max(MainViewModel.MinCardWidth,
+                                Math.Floor(available / columns) - cardMargin);
+    }
+
     private void ApplyDeckVisibility()
     {
         bool searching = _searchQuery.Length > 0;
