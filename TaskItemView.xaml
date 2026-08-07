@@ -21,10 +21,10 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,8,0">
-                    <TextBlock Text="{Binding Id}" Foreground="#FF777777" FontSize="10"
+                    <TextBlock Text="{Binding Id}" Foreground="#FF777777" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=10}"
                                VerticalAlignment="Center"/>
                     <!-- status text comes from the external file: direction follows its content -->
-                    <TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="11"
+                    <TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"
                                VerticalAlignment="Center" Margin="8,0,0,0"
                                FlowDirection="{Binding Status, Converter={StaticResource Rtl}}">
                         <TextBlock.Style>
@@ -41,7 +41,7 @@
                 <!-- RightToLeft mirrors layout as well as glyphs, so Dock=Left puts the pin on
                      the right of the name, which is the side the text now starts from. -->
                 <DockPanel Grid.Column="1" FlowDirection="RightToLeft">
-                    <TextBlock DockPanel.Dock="Left" Text="📌" FontSize="10" Margin="0,1,4,0"
+                    <TextBlock DockPanel.Dock="Left" Text="📌" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=10}" Margin="0,1,4,0"
                                VerticalAlignment="Top">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -58,7 +58,7 @@
                          hyperlink — blue and underlined. The emoji marker a producer may put
                          in the name was not enough to spot while scanning (feedback
                          07-08-2026); colour reads before the eye reaches the glyph. -->
-                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="12"
+                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=12}"
                                FontWeight="SemiBold" TextWrapping="Wrap">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -73,7 +73,7 @@
                     </TextBlock>
                 </DockPanel>
             </Grid>
-            <TextBlock Text="{Binding Description}" Foreground="#FF999999" FontSize="10.5"
+            <TextBlock Text="{Binding Description}" Foreground="#FF999999" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=10.5}"
                        TextWrapping="Wrap" Margin="0,2,0,0"
                        FlowDirection="{Binding Description, Converter={StaticResource Rtl}}">
                 <TextBlock.Style>
@@ -94,7 +94,9 @@
                         <Setter Property="Foreground" Value="#FFDDDDDD"/>
                         <Setter Property="Padding" Value="9,2"/>
                         <Setter Property="Margin" Value="0,0,6,0"/>
-                        <Setter Property="FontSize" Value="11"/>
+                        <!-- Setter.Value takes a binding, so the card's buttons grow with its
+                             text instead of staying behind at a fixed 11. -->
+                        <Setter Property="FontSize" Value="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"/>
                     </Style>
                 </StackPanel.Resources>
                 <Button x:Name="TargetButton" Content="{Binding TargetButtonText}"

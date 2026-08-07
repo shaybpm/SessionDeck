@@ -8,6 +8,7 @@
         <!-- Hebrew-first text renders RTL and right-aligned; anything else stays LTR.
              App-level so every window and dialog shares the one converter instance. -->
         <services:FlowDirectionConverter x:Key="Rtl"/>
+        <services:FontScaleConverter x:Key="FontScale"/>
 
         <!-- Standing rule (feedback 2026-07-20): ANY text that may start with Hebrew must
              be direction-aware. Tooltips are the easy thing to forget — they're written

@@ -204,6 +204,10 @@ public class AppConfig
     public int ClosedSessionRetention { get; set; } = 20;     // per workspace (decision 12)
     public bool OpenSessionMaximized { get; set; } = true;    // stage D: collapse VSCode panels on session open
     public bool ShowHidden { get; set; }
+    /// <summary>Multiplier on the task cards' font sizes, driven by A+ / A− on the toolbar
+    /// (feature 2026-08-07). 1.0 = the sizes the cards were designed at; the view model
+    /// clamps what is loaded, so an old or hand-edited config cannot set an unusable size.</summary>
+    public double TaskFontScale { get; set; } = 1.0;
     public bool AlwaysOnTop { get; set; }                     // 📌 pin toggle (feature 2026-07-19)
     /// <summary>Master switch for the OS-level attention escalation (feature 2026-07-20):
     /// balloon + taskbar overlay badge + one-shot flash. Only ever fires when the deck is

@@ -86,6 +86,17 @@
                                   ToolTip="Show hidden workspaces too"
                                   Style="{StaticResource IconToggle}"
                                   Checked="ShowHidden_Changed" Unchecked="ShowHidden_Changed"/>
+                    <!-- Task text size. Plain buttons rather than toggles: this is a value
+                         that steps, not a state that is on or off. The strip is RightToLeft
+                         as a layout device, so A+ is declared first to sit left of A-. -->
+                    <Button x:Name="FontBiggerButton" Content="A+" FontSize="12"
+                            ToolTip="Larger text in the task cards"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="6,2" Margin="0,2" Cursor="Hand" Click="FontBigger_Click"/>
+                    <Button x:Name="FontSmallerButton" Content="A-" FontSize="12"
+                            ToolTip="Smaller text in the task cards"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="6,2" Margin="0,2" Cursor="Hand" Click="FontSmaller_Click"/>
                     <!-- divider between user flags and the built-in toolbar toggles;
                          hidden when no flags are defined -->
                     <Border Width="1" Margin="6,3" Background="#FF3E3E3E">

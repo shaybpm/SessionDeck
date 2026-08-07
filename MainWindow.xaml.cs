@@ -138,6 +138,10 @@ public partial class MainWindow : Window
         Vm.OpenSessionMaximized = config.OpenSessionMaximized;
         Vm.PermissionWaitToolSeconds = new Dictionary<string, int>(config.PermissionWaitToolSeconds, StringComparer.Ordinal);
         Vm.ShowHidden = config.ShowHidden;
+        // A config written before this field existed deserializes to the property default,
+        // but a hand-edited 0 would clamp to the minimum and look like a shrunk panel with
+        // no cause. Anything non-positive means "not set".
+        Vm.TasksPanel.FontScale = config.TaskFontScale > 0 ? config.TaskFontScale : 1.0;
         Vm.AlwaysOnTop = config.AlwaysOnTop;
         Vm.WindowsNotifications = config.WindowsNotifications;
         LogService.DebugEnabled = config.DebugLogging;
@@ -283,6 +287,7 @@ public partial class MainWindow : Window
             OpenSessionMaximized = Vm.OpenSessionMaximized,
             PermissionWaitToolSeconds = new Dictionary<string, int>(Vm.PermissionWaitToolSeconds),
             ShowHidden = Vm.ShowHidden,
+            TaskFontScale = Vm.TasksPanel.FontScale,
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
             DebugLogging = LogService.DebugEnabled,
@@ -1963,6 +1968,20 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         var (ws, err) = AddWorkspaceFromPath(dialog.FolderName);
         SetStatus(ws != null ? $"Workspace \"{ws.DisplayTitle}\" added" : err!);
+    }
+
+    // Task text size (Shay, 07-08-2026). A tenth per click: small enough that the step is
+    // never jarring, large enough that four clicks are a visibly different size. The clamp
+    // lives in the view model, so holding a button cannot walk the size off the card.
+    private void FontBigger_Click(object sender, RoutedEventArgs e) => StepTaskFont(+0.1);
+
+    private void FontSmaller_Click(object sender, RoutedEventArgs e) => StepTaskFont(-0.1);
+
+    private void StepTaskFont(double delta)
+    {
+        Vm.TasksPanel.FontScale += delta;
+        QueueSave();
+        SetStatus($"Task text size: {Vm.TasksPanel.FontScale * 100:0}%");
     }
 
     private void ShowHidden_Changed(object sender, RoutedEventArgs e)

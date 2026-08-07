@@ -101,6 +101,26 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
         }
     }
 
+    public const double MinFontScale = 0.8;
+    public const double MaxFontScale = 2.0;
+
+    private double _fontScale = 1.0;
+    /// <summary>Multiplier on every font size of a task card, driven by the toolbar's A+ /
+    /// A− and persisted. Lives on the tasks panel and not on the deck at large because that
+    /// is the scope Shay asked for: the task list is the text he reads, the workspace cards
+    /// are mostly chrome.</summary>
+    public double FontScale
+    {
+        get => _fontScale;
+        set
+        {
+            value = Math.Clamp(value, MinFontScale, MaxFontScale);
+            if (Math.Abs(_fontScale - value) < 0.001) return;
+            _fontScale = value;
+            Raise();
+        }
+    }
+
     private string _filterNote = "";
     /// <summary>"3 of 29" while filtering — without it an over-narrow query looks like a
     /// panel that lost its content.</summary>
