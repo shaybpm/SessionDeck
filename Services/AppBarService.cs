@@ -123,16 +123,16 @@ public sealed class AppBarService
         if (edge == NativeMethods.ABE_LEFT) abd.rc.Right = Math.Min(abd.rc.Left + width, mon.Right);
         else abd.rc.Left = Math.Max(abd.rc.Right - width, mon.Left);
 
-        // Only touch the shell when the reservation actually moved. Every ABM_SETPOS and every
-        // reposition of a registered appbar window makes the shell recompute and answer with
-        // ABN_POSCHANGED, which lands in WndProc and calls this method straight back: measured
-        // 08-08-2026 at 250 callbacks per second. Re-acting only on a real change breaks that
-        // ping-pong whatever the shell replies. Agenda item 4.13.18.
-        if (_hasAppliedRect && SameRect(_appliedRect, abd.rc)) return;
-        _appliedRect = abd.rc;
-        _hasAppliedRect = true;
+        // Re-announce the reservation only when it actually moved. Every ABM_SETPOS makes the
+        // shell recompute and answer with ABN_POSCHANGED, which lands in WndProc and calls this
+        // method straight back. Agenda item 4.13.18.
+        if (!_hasAppliedRect || !SameRect(_appliedRect, abd.rc))
+        {
+            _appliedRect = abd.rc;
+            _hasAppliedRect = true;
+            NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
+        }
 
-        NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
         // Win10/11 windows carry invisible resize borders: the visible (DWM) frame is
         // inset a few px from the window rect on the left/right/bottom, so placing the
         // window rect exactly on the zone leaves visible gaps. Inflate by the inset so
@@ -140,13 +140,24 @@ public sealed class AppBarService
         // maximized windows. The appbar reservation itself stays abd.rc, so neighbors
         // still align to the zone edge and only the transparent border overlaps them.
         RECT inset = GetInvisibleFrameInset();
+        int x = abd.rc.Left - inset.Left;
+        int y = abd.rc.Top - inset.Top;
+        int cx = abd.rc.Width + inset.Left + inset.Right;
+        int cy = abd.rc.Height + inset.Top + inset.Bottom;
+
+        // Move it only when it is not already exactly there. Repositioning a registered appbar
+        // window is itself enough to make the shell recompute and notify us again — measured at
+        // 250 callbacks per second on 08-08-2026, with no ABM_SETPOS involved at all. The
+        // comparison is against where the window actually IS, not against what we last asked
+        // for: anything else that moves or resizes it must still get snapped back, which is the
+        // entire point of the zone. Skipping the snap outright regressed exactly that.
+        if (NativeMethods.GetWindowRect(_hwnd, out RECT cur) &&
+            cur.Left == x && cur.Top == y && cur.Width == cx && cur.Height == cy) return;
+
         _selfPositioning = true;
         try
         {
-            NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero,
-                abd.rc.Left - inset.Left, abd.rc.Top - inset.Top,
-                abd.rc.Width + inset.Left + inset.Right,
-                abd.rc.Height + inset.Top + inset.Bottom,
+            NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero, x, y, cx, cy,
                 NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
         }
         finally { _selfPositioning = false; }
