@@ -42,9 +42,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private bool _activeOnly;
-    /// <summary>Show only sessions that are running or asking for something, and drop the
-    /// workspace cards left with none (Shay, 08-08-2026). See SessionViewModel.IsLive for
-    /// what counts.</summary>
+    /// <summary>Show only the workspace cards that are open right now: a bound VSCode window
+    /// or at least one session that has not ended (`WorkspaceViewModel.IsActive`). It never
+    /// hides a session inside a card that is shown (Shay, 08-08-2026).</summary>
     public bool ActiveOnly
     {
         get => _activeOnly;

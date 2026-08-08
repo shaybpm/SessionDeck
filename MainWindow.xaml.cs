@@ -865,19 +865,19 @@ public partial class MainWindow : Window
     private void ApplyDeckVisibility()
     {
         bool searching = _searchQuery.Length > 0;
-        // "Active only" stands down while searching: a query is an explicit request to find
+        // "Open only" stands down while searching: a query is an explicit request to find
         // something, and a filter that quietly hides the hit is worse than no filter.
-        bool activeOnly = Vm.ActiveOnly && !searching;
+        bool openOnly = Vm.ActiveOnly && !searching;
         foreach (var ws in Vm.Workspaces)
-        {
-            ws.ActiveOnly = activeOnly;
-            ws.RefreshSessionVisibility();
             ws.VisibleInDeck = (!ws.Hidden || Vm.ShowHidden)
                 && (!searching || ws.SelfMatchesSearch || ws.Sessions.Any(SessionMatchesSearch))
-                // A card with nothing live left on it is exactly what the filter is for.
-                // Expanded cards stay, so there is always a way back to the full list.
-                && (!activeOnly || ws.Expanded || ws.Sessions.Any(s => s.IsLive));
-        }
+                // The filter hides CARDS, never sessions. A card is kept when it is open right
+                // now: a bound VSCode window or at least one session that has not ended, which
+                // is what WorkspaceViewModel.IsActive already means. Filtering by session STATUS
+                // was the first attempt and it was wrong - it kept only `working` and buried the
+                // `done` sessions, which are the ones that finished answering and are waiting to
+                // be read. Shay had 12 open sessions across 5 windows and saw 4 (08-08-2026).
+                && (!openOnly || ws.Expanded || ws.IsActive);
         UpdateEmptyHint();
         RefreshBlinkAndSummary();   // hidden workspaces don't count in the summary dots
     }
@@ -2030,7 +2030,7 @@ public partial class MainWindow : Window
         if (_syncingUi || _initializing) return;
         Vm.ActiveOnly = ActiveOnlyToggle.IsChecked == true;
         ApplyDeckVisibility();
-        SetStatus(Vm.ActiveOnly ? "Showing running sessions only" : "Showing all sessions");
+        SetStatus(Vm.ActiveOnly ? "Showing open workspaces only" : "Showing all workspaces");
         QueueSave();
     }
 
