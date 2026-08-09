@@ -51,6 +51,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { if (_activeOnly != value) { _activeOnly = value; Raise(); } }
     }
 
+    /// <summary>Order of the cards below the live ones (feature 09-08-2026).</summary>
+    public DeckSort Sort { get; set; } = DeckSort.Alphabetical;
+
     public ZoneMode ZoneMode { get; set; } = ZoneMode.Off;
     public int ZoneMonitor { get; set; }
     /// <summary>Custom-mode width as the user typed it ("2/7", "40%", "0.4") — kept verbatim for display.</summary>

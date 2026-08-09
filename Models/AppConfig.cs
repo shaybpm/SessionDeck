@@ -4,6 +4,11 @@ namespace SessionDeck.Models;
 public enum ZoneMode { Off, QuarterLeft, HalfLeft, HalfRight, QuarterRight, Full, CustomLeft, CustomRight }
 public enum StageMode { Full, HalfLeft, HalfRight, Rect }
 
+/// <summary>Order of the workspace cards on the deck (Shay, 09-08-2026 — with the ⚡ filter
+/// off the whole deck comes back and A→Z alone is not a useful way through it). Live cards
+/// float to the top in every mode (decision 16); this decides the order below them.</summary>
+public enum DeckSort { Alphabetical, Recent, Frequency }
+
 public static class ModeNames
 {
     public static string ToName(ZoneMode m) => m switch
@@ -34,6 +39,25 @@ public static class ModeNames
             _ => (ZoneMode)(-1),
         };
         return (int)m >= 0;
+    }
+
+    public static string ToName(DeckSort s) => s switch
+    {
+        DeckSort.Recent => "recent",
+        DeckSort.Frequency => "frequency",
+        _ => "abc",
+    };
+
+    public static bool TryParseDeckSort(string s, out DeckSort sort)
+    {
+        sort = s switch
+        {
+            "abc" => DeckSort.Alphabetical,
+            "recent" => DeckSort.Recent,
+            "frequency" => DeckSort.Frequency,
+            _ => (DeckSort)(-1),
+        };
+        return (int)sort >= 0;
     }
 
     public static string ToName(StageMode m) => m switch
@@ -121,6 +145,15 @@ public class WorkspaceConfig
     public string? CustomColor { get; set; }         // null = auto (Peacock / default)
     public bool Hidden { get; set; }
     public string? TranscriptDir { get; set; }       // learned from hooks (stage D)
+    /// <summary>Last time a session on this card reported anything, or the user opened it
+    /// from the deck — the key behind the "last used" order. Persisted because the sessions
+    /// it was derived from are pruned by retention, so the deck would otherwise forget that
+    /// a card was busy last week the moment its 21st session closed.</summary>
+    public DateTime? LastUsedAt { get; set; }
+    /// <summary>How many sessions have ever been opened on this card — the "most used"
+    /// order. Counting the sessions still on the card would top out at the retention limit
+    /// and rank every heavily-used workspace the same.</summary>
+    public int UseCount { get; set; }
     public List<SessionConfig> Sessions { get; set; } = new();
 }
 
@@ -208,6 +241,9 @@ public class AppConfig
     /// workspace cards left with none (feature 2026-08-08). Expanding a card shows all of it
     /// regardless, and a search switches the filter off for its duration.</summary>
     public bool ActiveSessionsOnly { get; set; }
+    /// <summary>Card order: "abc" (default — what the deck always did), "recent" or
+    /// "frequency". Default stays A→Z so an upgrade never silently rearranges the deck.</summary>
+    public string DeckSort { get; set; } = "abc";
     /// <summary>Multiplier on the card font sizes, driven by A+ / A− on the toolbar
     /// (feature 2026-08-07, widened to the whole deck 2026-08-08). 1.0 = the sizes the cards
     /// were designed at; the view model clamps what is loaded, so an old or hand-edited config
