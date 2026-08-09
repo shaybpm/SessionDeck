@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file",
-        "prompt",
+        "prompt", "page",
     };
 
     private readonly MainWindow _window;
@@ -403,6 +403,15 @@ public sealed class CommandExecutor
 
         if (Vm.TasksFilePath == null)
             return Ok("tasks: off  (enable: sessiondeck tasks --file \"<path>.json\")");
+
+        // Open/close the page from the CLI. It exists for verification: the deck is a
+        // singleton on a live desktop, so a change to the tasks page cannot be checked by
+        // clicking a second copy, and `snapshot` renders nothing while the page is hidden.
+        if (a.Options.TryGetValue("page", out var page))
+        {
+            if (page is not ("on" or "off")) return Err("--page must be on or off");
+            if (page == "on") _window.ShowTasksPage(); else _window.CloseTasksPage();
+        }
         var p = Vm.TasksPanel;
         string state = p.HasError ? $"ERROR: {p.ErrorText}"
             : $"{p.PinnedTasks.Count + p.OtherTasks.Count} tasks ({p.PinnedTasks.Count} pinned)"

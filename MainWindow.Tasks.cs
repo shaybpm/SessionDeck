@@ -169,16 +169,42 @@ public partial class MainWindow
         menu.IsOpen = true;
     }
 
+    /// <summary>A click on a column-B square: do what clicking that item's CARD would do.
+    ///
+    /// A parent opens its own level, exactly like the card's drill-in link. A leaf has no
+    /// level of its own, so if its card is on screen it gets the card's click (a session);
+    /// otherwise the click walks to the level the card lives on, which is the only sense in
+    /// which a leaf can be "entered" at all.</summary>
+    public void OpenNavTarget(NavSquareViewModel square)
+    {
+        if (!square.IsParent &&
+            Vm.TasksPanel.AllTasks.FirstOrDefault(t => t.Id == square.Number) is { } onScreen)
+        {
+            HandleTaskActivate(onScreen, TasksPage);
+            return;
+        }
+        if (square.Url.Length == 0)
+        {
+            SetStatus($"{square.Number} — nowhere to navigate to");
+            return;
+        }
+        OpenUrl(square.Url, square.Number);
+    }
+
     public void OpenTaskUrl(TaskItemViewModel task)
     {
-        if (!task.HasUrl) return;
+        if (task.HasUrl) OpenUrl(task.Url, task.Name);
+    }
+
+    private void OpenUrl(string url, string what)
+    {
         try
         {
-            Process.Start(new ProcessStartInfo(task.Url) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            SetStatus($"Opening the link failed: {ex.Message}");
+            SetStatus($"Opening the link failed ({what}): {ex.Message}");
         }
     }
 

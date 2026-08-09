@@ -29,6 +29,19 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
     /// matched against the real list, not against what a search happens to leave on screen.</summary>
     public IEnumerable<TaskItemViewModel> AllTasks => _allPinned.Concat(_allOther);
 
+    /// <summary>The navigation grid down the right edge (#4.13.19): column A, the top level,
+    /// fixed and never scrolling; column B, the selected root's direct children, with a scroll
+    /// area of its own. Empty when the producer wrote no map, and then no grid is drawn.</summary>
+    public ObservableCollection<NavSquareViewModel> NavRoots { get; } = new();
+    public ObservableCollection<NavSquareViewModel> NavChildren { get; } = new();
+
+    public bool HasNav => NavRoots.Count > 0;
+
+    // Where the file said we were on the previous load, and the root the user lit by hand.
+    private string? _lastActiveRoot;
+    private string? _lastActiveChild;
+    private string? _previewRoot;
+
     private bool _enabled;
     /// <summary>A tasks file path is configured — the strip (and everything else) exists.</summary>
     public bool Enabled
@@ -143,6 +156,7 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
         if (result.Document is not { } doc)
         {
             Rebuild();
+            ApplyNav(null);
             ErrorText = result.FileError ?? "Unknown error";
             WarningText = "";
             GeneratedText = "";
@@ -158,6 +172,7 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
             (item.Pinned ? _allPinned : _allOther).Add(item);
         }
         Rebuild();
+        ApplyNav(doc);
         WarningText = result.RecordWarnings.Count == 0 ? ""
             : $"{result.RecordWarnings.Count} records were not loaded: " + string.Join("; ", result.RecordWarnings);
     }
@@ -177,11 +192,55 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
             ? "" : $"{OtherTasks.Count} of {_allOther.Count}";
     }
 
+    /// <summary>Rebuild the grid from the file. A root the user lit by hand survives a reload,
+    /// but only while the view itself has not moved: navigating IS the user saying where they
+    /// want to be, and that has to beat a preview they left behind ten seconds ago.</summary>
+    private void ApplyNav(TasksDocument? doc)
+    {
+        NavRoots.Clear();
+        NavChildren.Clear();
+        var nav = doc?.NavIndex;
+        if (nav != null && doc != null)
+            foreach (var entry in nav.Roots)
+            {
+                var square = NavSquareViewModel.From(entry, doc.StatusColors);
+                if (square.Number.Length > 0) NavRoots.Add(square);
+            }
+        Raise(nameof(HasNav));
+
+        if (nav?.ActiveRoot != _lastActiveRoot) _previewRoot = null;
+        _lastActiveRoot = nav?.ActiveRoot;
+        _lastActiveChild = nav?.ActiveChild;
+        Select(NavRoots.FirstOrDefault(r => r.Number == (_previewRoot ?? _lastActiveRoot)));
+    }
+
+    /// <summary>Light a root and fill column B with its children. Preview ONLY: the task list
+    /// must not move, or every glance at the tree would cost the user the place they are
+    /// standing in.</summary>
+    public void PreviewRoot(NavSquareViewModel root)
+    {
+        _previewRoot = root.Number;
+        Select(root);
+    }
+
+    private void Select(NavSquareViewModel? root)
+    {
+        foreach (var r in NavRoots) r.Selected = ReferenceEquals(r, root);
+        NavChildren.Clear();
+        if (root == null) return;
+        foreach (var child in root.Children)
+        {
+            child.Selected = child.Number == _lastActiveChild;
+            NavChildren.Add(child);
+        }
+    }
+
     public void Clear()
     {
         _allPinned.Clear();
         _allOther.Clear();
         Rebuild();
+        ApplyNav(null);
         ErrorText = "";
         WarningText = "";
         GeneratedText = "";
