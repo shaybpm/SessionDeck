@@ -77,6 +77,7 @@ feature that can be removed without touching the engine.
 | `ViewModels/MainViewModel.cs` | The workspace collection, global switches, the status-summary dots. |
 | `ViewModels/WorkspaceViewModel.cs` | One card. Colour precedence, branch, the reported VSCode tabs, `ActiveClaudeTabLabel` (which expires, on purpose). |
 | `ViewModels/SessionViewModel.cs` | One session card. Title precedence, status, and the blink decision (`BlinkActive`). Several runtime-only fields here exist purely to make the hook/scanner seam work. |
+| `ViewModels/NavSquareViewModel.cs` | One square of the tasks page's navigation grid. Fill says structure (parent vs unit of work), border says status. |
 | `Models/AppConfig.cs` | The persisted schema. Also the status-to-style map and the per-tool wait thresholds, both of which are config rather than code so they change without a build. |
 
 ### Services
@@ -97,7 +98,11 @@ feature that can be removed without touching the engine.
 ### UI
 
 `MainWindow.xaml` is the shell: toolbar, search row, status bar, and a `Grid` that swaps the
-deck for the tasks page. `WorkspaceCardView` is one card, and its code-behind is almost
+deck for the tasks page. `TasksPageView` is that page: live session squares on the left, the
+task list in the middle, and on the right the **navigation grid** — two vertical columns of
+numbered squares (the tree's top level, and the selected top-level item's direct children)
+drawn from the optional `navIndex` the tasks file may carry. Column A only previews; column B
+navigates. Without a `navIndex` no grid is drawn at all. `WorkspaceCardView` is one card, and its code-behind is almost
 entirely DWM thumbnail maths (registering, clipping to the scroll viewport, letterboxing).
 `App.xaml` holds the app-wide styles and, importantly, applies the direction converter to
 every tooltip, menu item and combo item.

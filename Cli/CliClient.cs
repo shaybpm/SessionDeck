@@ -81,8 +81,9 @@ public static class CliClient
         sessiondeck uninstall-hooks [--settings <path>]               remove them (runs locally, app not needed)
         sessiondeck toggle list | get <id> | set <id> on|off    user-defined flags;
                                                   state is mirrored to %APPDATA%\SessionDeck\toggles\<id>
-        sessiondeck tasks [--file "<path>.json" | --off]   external tasks panel (T-0116):
-                                                  no args = show state; --file sets the JSON, --off disables
+        sessiondeck tasks [--file "<path>.json" | --off | --page on|off]   external tasks panel (T-0116):
+                                                  no args = show state; --file sets the JSON, --off disables,
+                                                  --page opens/closes the full page
         sessiondeck help
 
         session commands (called by the Claude Code hooks):
