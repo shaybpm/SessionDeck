@@ -84,11 +84,18 @@ he can decide what to send on.
 - **Committing on a work branch needs no approval.** Commit whenever a change is coherent
   and verified, with a message that explains the why. A local commit changes nothing outside
   the machine and is reversible; withholding it only produces one large unreviewable blob.
-- **Pushing, opening a PR and merging to `main` all need explicit approval** in the
-  conversation. That is the boundary that matters: it is where work leaves the machine and
-  where `main` can move. `main` is Shay's own (it tracks his fork since 08-08-2026), which
-  makes merging into it routine rather than fraught, but the push itself is still the moment
-  the work stops being local and it still gets asked about.
+- **Pushing, opening a PR, merging to `main` and cutting a release all run without asking**
+  (Shay, 09-08-2026: "זה ריפו שלנו אז אין בעיה שתנהל אותו אתה"). This repo is his own fork;
+  `main` tracks it, nobody else consumes it, and every step is revertible. Do the work, then
+  report what moved in a line or two. The approval gate that used to sit on this line was
+  asked for and granted three times in one session before he removed it: a gate written into
+  a file outlives the conversation that satisfied it, so the file is where it had to change.
+- **The one thing that still stops:** anything aimed at `eyalBPM/SessionDeck` (its push URL
+  is deliberately `DISABLED_read_only_use_a_PR`). Sending work upstream is Shay's own
+  initiative, never a step inside other work. Watch `gh` here: it resolves a fork's default
+  base to the PARENT, so `gh pr create` with no `--repo` opened a PR against Eyal's repo on
+  09-08-2026. `gh repo set-default shaybpm/SessionDeck` is set on this machine; on a fresh
+  clone, set it before the first `gh` command.
 - Temporary zip/publish artifacts: add the pattern to `.gitignore` *before* creating them.
 
 ## UI language and text direction
