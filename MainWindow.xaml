@@ -90,6 +90,25 @@
                                   ToolTip="Open only: hide the workspaces with no window and no live session. Every session on a shown card stays visible."
                                   Style="{StaticResource IconToggle}"
                                   Checked="ActiveOnly_Changed" Unchecked="ActiveOnly_Changed"/>
+                    <!-- Card order. A plain button with a menu, not a toggle: three choices,
+                         only one of them true at a time, and the menu can name them in full. -->
+                    <Button x:Name="SortButton" Content="⇅" FontSize="14"
+                            ToolTip="Order of the cards on the deck"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="8,2" Margin="0,2" Cursor="Hand" Click="Sort_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="SortAbcMenuItem" Header="Sort: A → Z"
+                                          IsCheckable="True" Click="SortMode_Click" Tag="abc"/>
+                                <MenuItem x:Name="SortRecentMenuItem" Header="Sort: last used first"
+                                          IsCheckable="True" Click="SortMode_Click" Tag="recent"
+                                          ToolTip="Most recently active workspace at the top"/>
+                                <MenuItem x:Name="SortFrequencyMenuItem" Header="Sort: most used first"
+                                          IsCheckable="True" Click="SortMode_Click" Tag="frequency"
+                                          ToolTip="By how many sessions have ever been opened on the card"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                     <!-- Card text size. Plain buttons rather than toggles: this is a value
                          that steps, not a state that is on or off. The strip is RightToLeft
                          as a layout device, so A+ is declared first to sit left of A-. -->

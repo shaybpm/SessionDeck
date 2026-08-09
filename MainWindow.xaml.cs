@@ -139,6 +139,7 @@ public partial class MainWindow : Window
         Vm.PermissionWaitToolSeconds = new Dictionary<string, int>(config.PermissionWaitToolSeconds, StringComparer.Ordinal);
         Vm.ShowHidden = config.ShowHidden;
         Vm.ActiveOnly = config.ActiveSessionsOnly;
+        if (ModeNames.TryParseDeckSort(config.DeckSort, out var deckSort)) Vm.Sort = deckSort;
         // A config written before this field existed deserializes to the property default,
         // but a hand-edited 0 would clamp to the minimum and look like a shrunk panel with
         // no cause. Anything non-positive means "not set".
@@ -208,6 +209,12 @@ public partial class MainWindow : Window
                 if (svm.Closed && NeverMaterialized(svm)) continue;
                 ws.Sessions.Add(svm);
             }
+            // Seeded from what is already on the card, so the first "last used" / "most used"
+            // sort is meaningful on a config written before these two fields existed.
+            ws.UseCount = wc.UseCount > 0 ? wc.UseCount : wc.Sessions.Count;
+            ws.LastUsedAt = wc.LastUsedAt ?? ws.Sessions
+                .Select(s => (DateTime?)(s.LastEventAt ?? s.EndedAt ?? s.StartedAt))
+                .Max();
             foreach (var s in ws.Sessions) RefreshPhantom(s);
             ws.RefreshSessionVisibility();
             SortSessions(ws);
@@ -290,6 +297,7 @@ public partial class MainWindow : Window
             PermissionWaitToolSeconds = new Dictionary<string, int>(Vm.PermissionWaitToolSeconds),
             ShowHidden = Vm.ShowHidden,
             ActiveSessionsOnly = Vm.ActiveOnly,
+            DeckSort = ModeNames.ToName(Vm.Sort),
             TaskFontScale = Vm.TasksPanel.FontScale,
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
@@ -316,6 +324,8 @@ public partial class MainWindow : Window
                 CustomColor = w.CustomColor,
                 Hidden = w.Hidden,
                 TranscriptDir = w.TranscriptDir,
+                LastUsedAt = w.LastUsedAt,
+                UseCount = w.UseCount,
             };
             // Historical sessions (discovered from the transcripts folder) are re-discovered
             // on expand — persisting them would bloat the config.
@@ -849,10 +859,31 @@ public partial class MainWindow : Window
         => Vm.Workspaces.FirstOrDefault(w =>
                string.Equals(TranscriptSlug(w.Path), folder, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Keep a session on the card its transcript proves it belongs to — on every
+    /// hook event, not only when the record is first created. Creation is the one moment the
+    /// placement used to be decided, and for a session already filed under the old cwd rule
+    /// (or auto-closed and then revived, which re-uses the existing record) that moment has
+    /// passed: it stayed on the wrong card for the rest of its life. Shay reported the same
+    /// coordinator session sitting on a folder it never ran in twice (09-08-2026).
+    /// Returns the workspace the session now lives on.</summary>
+    private WorkspaceViewModel EnsureSessionHome(WorkspaceViewModel ws, SessionViewModel session, string? transcript)
+    {
+        var home = WorkspaceForTranscript(transcript ?? session.TranscriptPath);
+        if (home == null || home == ws) return ws;
+        ws.Sessions.Remove(session);
+        home.Sessions.Insert(0, session);
+        foreach (var w in new[] { ws, home }) { w.RefreshSessionVisibility(); SortSessions(w); }
+        LogService.Info("status", $"session={session.SessionId} re-homed from \"{ws.DisplayTitle}\" to \"{home.DisplayTitle}\"");
+        QueueSave();
+        return home;
+    }
+
     /// <summary>Repair at load for cards filed under the old cwd-only rule: a workspace
-    /// that borrowed another's transcripts folder drops it, and every OPEN session whose
-    /// transcript names a different workspace moves there. Closed sessions stay where they
-    /// are — they are history, and moving them would rewrite what the user already saw.</summary>
+    /// that borrowed another's transcripts folder drops it, and every session whose
+    /// transcript names a different workspace moves there. Closed sessions are moved too
+    /// (they were exempt until 09-08-2026, on the reasoning that history should not be
+    /// rewritten): a closed card on a folder the session never ran in is not history, it is
+    /// wrong data, and it is exactly what the user sees and reports.</summary>
     private void RehomeMisfiledSessions()
     {
         foreach (var ws in Vm.Workspaces)
@@ -868,7 +899,6 @@ public partial class MainWindow : Window
         foreach (var ws in Vm.Workspaces)
             foreach (var s in ws.Sessions)
             {
-                if (s.Closed) continue;
                 var home = WorkspaceForTranscript(s.TranscriptPath);
                 if (home != null && home != ws) moves.Add((ws, home, s));
             }
@@ -908,14 +938,28 @@ public partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>Actives (bound window / live session) float to the top (decision 16).
+    /// <summary>Actives (bound window / live session) float to the top (decision 16), and
+    /// below them the order the user picked: A→Z (the original and the default), last used,
+    /// or most used. Active-first is kept in every mode — a card that is running right now is
+    /// the most recently used one anyway, so the two rules never actually disagree.
     /// Stable in-place sort via Move so DWM thumbnails survive.</summary>
     public void SortWorkspaces()
     {
-        var desired = Vm.Workspaces
-            .OrderByDescending(w => w.IsActive)
-            .ThenBy(w => w.DisplayTitle, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+        var byTitle = Vm.Workspaces.OrderByDescending(w => w.IsActive)
+            .ThenBy(w => w.DisplayTitle, StringComparer.CurrentCultureIgnoreCase);
+        var desired = (Vm.Sort switch
+        {
+            // Never used at all sorts last rather than first: DateTime.MinValue would put
+            // every card the deck knows nothing about above the ones it does.
+            DeckSort.Recent => Vm.Workspaces.OrderByDescending(w => w.IsActive)
+                .ThenByDescending(w => w.LastUsedAt ?? DateTime.MinValue)
+                .ThenBy(w => w.DisplayTitle, StringComparer.CurrentCultureIgnoreCase),
+            DeckSort.Frequency => Vm.Workspaces.OrderByDescending(w => w.IsActive)
+                .ThenByDescending(w => w.UseCount)
+                .ThenByDescending(w => w.LastUsedAt ?? DateTime.MinValue)
+                .ThenBy(w => w.DisplayTitle, StringComparer.CurrentCultureIgnoreCase),
+            _ => byTitle,
+        }).ToList();
         for (int target = 0; target < desired.Count; target++)
         {
             int current = Vm.Workspaces.IndexOf(desired[target]);
@@ -1270,6 +1314,7 @@ public partial class MainWindow : Window
         if (Vm.FindSession(sessionId) is { } found)
         {
             var (fw, fs) = found;
+            fw = EnsureSessionHome(fw, fs, info.Transcript);
             fs.Closed = false;
             fs.Status = SessionStatus.Idle;
             fs.StartedAt = DateTime.Now;
@@ -1302,6 +1347,7 @@ public partial class MainWindow : Window
         ApplyHookInfo(session, info);
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
+        ws.UseCount++;
         ws.Sessions.Insert(0, session);
         ws.RefreshSessionVisibility();
         AfterSessionChange(ws);
@@ -1406,11 +1452,15 @@ public partial class MainWindow : Window
             };
             ApplyHookInfo(recreated, info);
             LearnTranscriptDir(host, info);
+            host.UseCount++;
             host.Sessions.Insert(0, recreated);
             AfterSessionChange(host);
             return ($"session {sessionId} recreated in \"{host.DisplayTitle}\" [{SessionStatusNames.ToName(status)}]", true);
         }
         var (ws, session) = found;
+        // Before anything is logged or acknowledged: the card this session belongs to may
+        // have been decided under the old cwd rule, and every hook carries the proof.
+        ws = EnsureSessionHome(ws, session, info.Transcript);
         if (session.Closed)
         {
             // An auto-closed session (orphan/stale sweep) that emits a hook is demonstrably
@@ -1485,6 +1535,7 @@ public partial class MainWindow : Window
         if (Vm.FindSession(sessionId) is not { } found)
             return ($"unknown session id {sessionId}", false);
         var (ws, session) = found;
+        ws = EnsureSessionHome(ws, session, info.Transcript);
         ApplyHookInfo(session, info);
         LearnTranscriptDir(ws, info);
         if (NeverMaterialized(session))
@@ -1526,6 +1577,7 @@ public partial class MainWindow : Window
 
     private void AfterSessionChange(WorkspaceViewModel ws)
     {
+        ws.LastUsedAt = DateTime.Now;   // every session event is this card being used
         ws.RefreshSessionVisibility();
         SortSessions(ws);
         SortWorkspaces();
@@ -1786,6 +1838,7 @@ public partial class MainWindow : Window
 
     public (bool, string) FocusWorkspace(WorkspaceViewModel ws)
     {
+        ws.LastUsedAt = DateTime.Now;   // opening a card from the deck is using it
         if (ws.State != BindState.Connected || !NativeMethods.IsWindow(ws.Hwnd))
         {
             // No bound window — open VSCode on the folder; auto-bind picks it up (feedback 2026-07-19).
@@ -2026,6 +2079,7 @@ public partial class MainWindow : Window
         ShowHiddenToggle.IsChecked = Vm.ShowHidden;
         ActiveOnlyToggle.IsChecked = Vm.ActiveOnly;
         PinTopToggle.IsChecked = Vm.AlwaysOnTop;
+        SyncSortMenu();
         _syncingUi = false;
         SyncCombosFromVm();
     }
@@ -2133,6 +2187,37 @@ public partial class MainWindow : Window
         ApplyDeckVisibility();
         SetStatus(Vm.ActiveOnly ? "Showing open workspaces only" : "Showing all workspaces");
         QueueSave();
+    }
+
+    private void Sort_Click(object sender, RoutedEventArgs e)
+    {
+        SortButton.ContextMenu.PlacementTarget = SortButton;
+        SortButton.ContextMenu.IsOpen = true;
+    }
+
+    private void SortMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem item || item.Tag is not string name ||
+            !ModeNames.TryParseDeckSort(name, out var sort)) return;
+        Vm.Sort = sort;
+        SyncSortMenu();
+        SortWorkspaces();
+        QueueSave();
+        SetStatus(sort switch
+        {
+            DeckSort.Recent => "Cards ordered by last used",
+            DeckSort.Frequency => "Cards ordered by how often they are used",
+            _ => "Cards ordered A → Z",
+        });
+    }
+
+    /// <summary>The three items are one choice, so the check marks are set from the view
+    /// model rather than by the click: IsCheckable would otherwise leave two of them ticked.</summary>
+    private void SyncSortMenu()
+    {
+        SortAbcMenuItem.IsChecked = Vm.Sort == DeckSort.Alphabetical;
+        SortRecentMenuItem.IsChecked = Vm.Sort == DeckSort.Recent;
+        SortFrequencyMenuItem.IsChecked = Vm.Sort == DeckSort.Frequency;
     }
 
     private void PinTop_Changed(object sender, RoutedEventArgs e)
