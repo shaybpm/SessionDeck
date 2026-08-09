@@ -214,6 +214,7 @@ public partial class MainWindow : Window
             RefreshMetadata(ws);
             Vm.Workspaces.Add(ws);
         }
+        RehomeMisfiledSessions();
         ApplyDeckVisibility();
         SortWorkspaces();
 
@@ -808,6 +809,85 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>The same slug with no existence check, for matching a transcripts folder
+    /// back to the workspace that produced it. Every comparison against it is
+    /// case-insensitive — the drive letter's case varies across Claude Code versions, and
+    /// two spellings of one folder read as two workspaces otherwise.</summary>
+    private static string? TranscriptSlug(string wsPath)
+    {
+        if (wsPath.Length == 0) return null;
+        try
+        {
+            string full = Path.GetFullPath(wsPath).TrimEnd('\\');
+            return string.Concat(full.Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-'));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>The workspace a session's transcript proves it belongs to, or null.
+    /// The transcripts folder is derived from the directory the session STARTED in and
+    /// never moves; the cwd a hook reports moves with the session. On 09-08-2026 a
+    /// coordinator session walked through four folders in one day and its card followed
+    /// the last one, so it sat on a workspace that had no window and no session of its own.
+    /// Slug match first (it decodes the folder back to the directory that made it), then a
+    /// folder some workspace has already learned.</summary>
+    private WorkspaceViewModel? WorkspaceForTranscript(string? transcriptPath)
+    {
+        if (string.IsNullOrEmpty(transcriptPath)) return null;
+        string? dir = Path.GetDirectoryName(transcriptPath);
+        if (string.IsNullOrEmpty(dir)) return null;
+        string folder = Path.GetFileName(dir.TrimEnd('\\'));
+        if (folder.Length == 0) return null;
+
+        return SlugOwner(folder)
+            ?? Vm.Workspaces.FirstOrDefault(w => w.TranscriptDir is { Length: > 0 } d &&
+                   string.Equals(Path.GetFileName(d.TrimEnd('\\')), folder, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The one workspace whose path slugs to this transcripts folder name.</summary>
+    private WorkspaceViewModel? SlugOwner(string folder)
+        => Vm.Workspaces.FirstOrDefault(w =>
+               string.Equals(TranscriptSlug(w.Path), folder, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Repair at load for cards filed under the old cwd-only rule: a workspace
+    /// that borrowed another's transcripts folder drops it, and every OPEN session whose
+    /// transcript names a different workspace moves there. Closed sessions stay where they
+    /// are — they are history, and moving them would rewrite what the user already saw.</summary>
+    private void RehomeMisfiledSessions()
+    {
+        foreach (var ws in Vm.Workspaces)
+        {
+            if (ws.TranscriptDir is not { Length: > 0 } d) continue;
+            var owner = SlugOwner(Path.GetFileName(d.TrimEnd('\\')));
+            if (owner == null || owner == ws) continue;
+            LogService.Info("workspace", $"\"{ws.DisplayTitle}\" dropped a transcripts folder owned by \"{owner.DisplayTitle}\"");
+            ws.TranscriptDir = null;
+        }
+
+        var moves = new List<(WorkspaceViewModel From, WorkspaceViewModel To, SessionViewModel Session)>();
+        foreach (var ws in Vm.Workspaces)
+            foreach (var s in ws.Sessions)
+            {
+                if (s.Closed) continue;
+                var home = WorkspaceForTranscript(s.TranscriptPath);
+                if (home != null && home != ws) moves.Add((ws, home, s));
+            }
+        if (moves.Count == 0) return;
+
+        foreach (var (from, to, session) in moves)
+        {
+            from.Sessions.Remove(session);
+            to.Sessions.Insert(0, session);
+            LogService.Info("status", $"session={session.SessionId} re-homed from \"{from.DisplayTitle}\" to \"{to.DisplayTitle}\"");
+        }
+        foreach (var ws in moves.SelectMany(m => new[] { m.From, m.To }).Distinct())
+        {
+            ws.RefreshSessionVisibility();
+            SortSessions(ws);
+        }
+        QueueSave();
+    }
+
     /// <summary>Claude Code's project-folder slug: non-ASCII-alphanumeric chars → '-'.
     /// The drive letter's case varies across versions — try both.</summary>
     private static string? DefaultTranscriptDir(string wsPath)
@@ -1203,8 +1283,14 @@ public partial class MainWindow : Window
             return ($"session {sessionId} restarted in \"{fw.DisplayTitle}\"", true);
         }
 
-        var ws = ResolveOrCreateWorkspace(workspaceArg, out string? err);
-        if (ws == null) return (err!, false);
+        // Transcript first, cwd second: the cwd in a hook payload is wherever the session
+        // happens to be standing right now, which is not always where it lives.
+        var ws = WorkspaceForTranscript(info.Transcript);
+        if (ws == null)
+        {
+            ws = ResolveOrCreateWorkspace(workspaceArg, out string? err);
+            if (ws == null) return (err!, false);
+        }
 
         var session = new SessionViewModel
         {
@@ -1239,7 +1325,13 @@ public partial class MainWindow : Window
     {
         if (info.Transcript is not { Length: > 0 } t) return;
         string? dir = Path.GetDirectoryName(t);
-        if (dir != null && ws.TranscriptDir != dir)
+        if (dir == null) return;
+        // Never let one workspace claim a folder that slugs to another. A session whose cwd
+        // wandered used to stamp its own transcripts folder onto whatever card it had landed
+        // on, and that stale value then pulled later sessions to the wrong card too.
+        var owner = SlugOwner(Path.GetFileName(dir.TrimEnd('\\')));
+        if (owner != null && owner != ws) return;
+        if (!string.Equals(ws.TranscriptDir, dir, StringComparison.OrdinalIgnoreCase))
         {
             ws.TranscriptDir = dir;
             QueueSave();
@@ -1297,10 +1389,15 @@ public partial class MainWindow : Window
         {
             // Self-healing (feedback 2026-07-19): the session may have been deleted with its
             // workspace. Every hook event carries cwd — recreate instead of dropping updates.
-            if (workspaceArg.Length == 0)
-                return ($"unknown session id {sessionId} (was 'session start' called?)", false);
-            var host = ResolveOrCreateWorkspace(workspaceArg, out string? err);
-            if (host == null) return (err!, false);
+            // Same order as StartSession: the transcript decides, cwd is the fallback.
+            var host = WorkspaceForTranscript(info.Transcript);
+            if (host == null)
+            {
+                if (workspaceArg.Length == 0)
+                    return ($"unknown session id {sessionId} (was 'session start' called?)", false);
+                host = ResolveOrCreateWorkspace(workspaceArg, out string? err);
+                if (host == null) return (err!, false);
+            }
             var recreated = new SessionViewModel
             {
                 SessionId = sessionId,
