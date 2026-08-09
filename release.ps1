@@ -166,7 +166,7 @@ Step "Release notes"
 $notesFile = Join-Path $env:TEMP "sessiondeck-release-notes-$ver.md"
 $changes = if ($prevTag) { git log "$prevTag..HEAD" --no-merges --format='- %s' } else { @('- initial packaged release') }
 @"
-**Install:** download the zip, extract, run ``install.ps1`` (no admin, no .NET needed). **Upgrade** from any previous version the same way. Details in the [README](https://github.com/eyalBPM/SessionDeck#getting-started).
+**Install:** download the zip, extract, run ``install.ps1`` (no admin, no .NET needed). **Upgrade** from any previous version the same way. Details in the [README](https://github.com/shaybpm/SessionDeck#getting-started).
 
 Versions in this zip: app $ver | extension $extVer | hooks $ver
 

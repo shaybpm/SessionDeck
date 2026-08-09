@@ -121,9 +121,20 @@ if (-not $vsix) {
     Write-Warning "VSCode 'code' command not found on PATH - skipping the extension. Install it later with: code --install-extension `"$($vsix.FullName)`""
 } else {
     Write-Host "Installing the VSCode extension ($($vsix.Name))..."
-    & code --install-extension $vsix.FullName --force 2>&1 | Out-Null
-    $listed = & code --list-extensions --show-versions 2>$null |
-        Where-Object { $_ -match 'sessiondeck-connector@(.+)$' } | Select-Object -First 1
+    # `code` writes Node's deprecation warnings to stderr. Under $ErrorActionPreference
+    # 'Stop' PowerShell 5.1 turns a redirected stderr line into a terminating
+    # NativeCommandError, so the installer died here - after copying the files, but
+    # before registering the hooks and starting the app (09-08-2026, Node DEP0169).
+    # The extension is explicitly a warning-not-failure step; keep it that way.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & code --install-extension $vsix.FullName --force 2>&1 | Out-Null
+        $listed = & code --list-extensions --show-versions 2>&1 |
+            Where-Object { $_ -match 'sessiondeck-connector@(.+)$' } | Select-Object -First 1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
     if ($listed -match 'sessiondeck-connector@(.+)$') { $extVersion = $Matches[1] }
     if (-not $extVersion) { Write-Warning "Extension install did not verify - check 'code --list-extensions --show-versions'." }
 }
