@@ -54,13 +54,22 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
     public int LaunchTargetCount => _launchTargets.Count;
 
     /// <summary>A task by its number: what is on screen first (it carries the live session
-    /// list), then the wider launch index.</summary>
+    /// list), then the wider launch index.
+    ///
+    /// The on-screen card wins only if it can actually be started. A card that aggregates
+    /// other tasks is drawn without a workspace on purpose — its click drills into its own
+    /// level — so preferring it unconditionally made the Run box REFUSE a number the launch
+    /// index knows a directory for, and only while that card happened to be on screen
+    /// (Shay, 11-08-2026: typing the number of a coordinator did nothing). The card is still
+    /// returned when neither source can start it, so the failure keeps naming the task
+    /// instead of claiming the number is unknown.</summary>
     public TaskItemViewModel? FindByNumber(string number)
     {
         number = number.Trim().TrimStart('#');
         if (number.Length == 0) return null;
-        return AllTasks.FirstOrDefault(t => string.Equals(t.Id, number, StringComparison.OrdinalIgnoreCase))
-               ?? (_launchTargets.TryGetValue(number, out var t) ? t : null);
+        var onScreen = AllTasks.FirstOrDefault(t => string.Equals(t.Id, number, StringComparison.OrdinalIgnoreCase));
+        if (onScreen is { HasTarget: true }) return onScreen;
+        return _launchTargets.TryGetValue(number, out var indexed) ? indexed : onScreen;
     }
 
     // Where the file said we were on the previous load.
