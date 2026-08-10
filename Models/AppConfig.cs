@@ -28,6 +28,20 @@ public static class ModeNames
     /// </summary>
     public static bool ReservesWorkArea(ZoneMode m) => m is not (ZoneMode.Off or ZoneMode.Full);
 
+    /// <summary>
+    /// Does the deck hold a place of its own on screen, so a session going orange or green is
+    /// visible where the user already looks and needs no OS notification?
+    ///
+    /// A separate question from ReservesWorkArea, and it must stay separate: every zone but
+    /// `Off` gives the deck a fixed place, while only some of them do it by reserving work
+    /// area. The notification gate used the reservation as its proxy for "on screen", which
+    /// held until Full stopped reserving on 10-08-2026 — the same hour, a deck that had been
+    /// quiet for weeks in Full started balloon-ing every finished session, about sixty an hour
+    /// with headless waves running (Shay, 10-08-2026). Full still fills its monitor; nothing
+    /// about how visible it is changed that day.
+    /// </summary>
+    public static bool HasOwnPlace(ZoneMode m) => m is not ZoneMode.Off;
+
     public static string ToName(ZoneMode m) => m switch
     {
         ZoneMode.Off => "off",
