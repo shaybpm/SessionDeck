@@ -69,6 +69,9 @@
                                           IsCheckable="True" Click="NotificationsMenuItem_Click"
                                           ToolTip="When on: a session that needs attention raises a Windows notification, a colored dot on the taskbar icon and a single flash.&#10;Active only while both 📌 and the Zone are off — in any other state the deck is visible anyway, and the card blink is enough.&#10;Even then, no notification is shown while the deck has focus."/>
                                 <Separator/>
+                                <MenuItem x:Name="TasksStripMenuItem" Header="Tasks strip on the deck"
+                                          IsCheckable="True" Click="TasksStripMenuItem_Click"
+                                          ToolTip="The narrow column of task squares at the right edge of the deck.&#10;Off by default: it shows whichever level of the tree the tasks page was last left on, and the 📋 button in this toolbar opens that page anyway."/>
                                 <MenuItem Header="Tasks file (JSON)..." Click="TasksFileMenuItem_Click"
                                           ToolTip="A read-only tasks panel fed by an external JSON file (a TaskDeck export, for instance). Empty = off"/>
                                 <MenuItem Header="Toggles (flags)..." Click="TogglesMenuItem_Click"
@@ -77,6 +80,22 @@
                                 <MenuItem x:Name="VersionMenuItem" IsEnabled="False"/>
                             </ContextMenu>
                         </Button.ContextMenu>
+                    </Button>
+                    <!-- The tasks page has to stay reachable from the deck even with the strip
+                         hidden — the 📋 that used to sit on top of the strip went with it. -->
+                    <Button x:Name="TasksPageButton" Content="📋" FontSize="14" ToolTip="Tasks page"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="8,2" Margin="0,2" Cursor="Hand" Click="TasksPageButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TasksPanel.Enabled}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                     </Button>
                     <ToggleButton x:Name="PinTopToggle" Content="📌" FontSize="13"
                                   ToolTip="Pin: keep the window always on top"
@@ -200,10 +219,74 @@
              all and nothing said why. The scope label spells out which of the two is being
              filtered, since the box itself looks identical either way. -->
         <Border x:Name="SearchRow" DockPanel.Dock="Top" Background="#FF1B1B1B" Padding="8,5">
-            <DockPanel LastChildFill="True">
+          <!-- Two halves (Shay, 10-08-2026): search on the left, Run-a-task-by-number on the
+               right. The search box was the whole row and did not need to be; the right half
+               replaces walking to a card and clicking its "New session" button. Equal columns
+               so neither half moves as the other's contents change. -->
+          <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <!-- separator between the halves; hidden with the Run half -->
+            <Border Grid.Column="1" Width="1" Background="#FF333333" Margin="10,1">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TasksPanel.Enabled}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+            </Border>
+            <!-- right half: type a task number, press Run. Hidden when no tasks file is
+                 configured, since there would be nothing to resolve a number against. -->
+            <DockPanel Grid.Column="2" LastChildFill="True">
+                <DockPanel.Style>
+                    <Style TargetType="DockPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TasksPanel.Enabled}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DockPanel.Style>
+                <TextBlock DockPanel.Dock="Left" Text="▶ Run task" Foreground="#FF9A9A9A"
+                           FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button DockPanel.Dock="Right" Content="Run" Click="RunTask_Click"
+                        Background="#FF3A6EA5" Foreground="White" BorderThickness="0"
+                        Padding="12,3" Margin="6,0,0,0" Cursor="Hand"
+                        ToolTip="Open a session for that task — the same thing its card's “New session” button does"/>
+                <!-- A task number is ASCII and must not follow the UI's direction. -->
+                <TextBox x:Name="RunTaskBox" VerticalContentAlignment="Center" FontSize="13"
+                         Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF444444"
+                         CaretBrush="White" Padding="6,3" FlowDirection="LeftToRight"
+                         KeyDown="RunTaskBox_KeyDown"
+                         ToolTip="A task number, e.g. 4.13 or 4.13.19. Enter runs it."/>
+            </DockPanel>
+            <DockPanel Grid.Column="0" LastChildFill="True">
                 <TextBlock x:Name="SearchScopeLabel" DockPanel.Dock="Left" Text="🔍 Sessions"
                            Foreground="#FF9A9A9A" FontSize="12" VerticalAlignment="Center"
                            Margin="0,0,8,0"/>
+                <!-- Clear button (Shay, 10-08-2026). Esc already does this, but only while the
+                     box has focus, and nothing on screen said so. -->
+                <Button x:Name="SearchClearButton" DockPanel.Dock="Right" Content="✕"
+                        Click="SearchClear_Click" Background="Transparent" Foreground="#FFAAAAAA"
+                        BorderThickness="0" Padding="7,2" Margin="4,0,0,0" Cursor="Hand"
+                        ToolTip="Clear the search (Esc)">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                    <Setter Property="Visibility" Value="Hidden"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <!-- Transcript search belongs to sessions only; hidden on the tasks page. -->
                 <CheckBox x:Name="SearchContentCheck" DockPanel.Dock="Right" Content="Search content too"
                           Foreground="#FFCCCCCC" VerticalAlignment="Center" Margin="14,0,6,0"
@@ -231,6 +314,7 @@
                          FlowDirection="{Binding Text, RelativeSource={RelativeSource Self}, Converter={StaticResource Rtl}}"
                          TextChanged="Search_Changed"/>
             </DockPanel>
+          </Grid>
         </Border>
 
         <!-- status bar: full width at the window bottom, outside the scroll area, so long

@@ -36,7 +36,9 @@ Click it, and the deck focuses the VSCode window, reveals that session's tab, an
 
 ### A tasks panel, if you want one
 
-Point SessionDeck at a JSON file and it grows a read-only tasks panel: a collapsed strip beside the deck, and a full page listing your tasks next to your live sessions. Click a task to open a session in its workspace — a new one, or a resume of a session already linked to it.
+Point SessionDeck at a JSON file and it grows a read-only tasks panel: a full page listing your tasks next to your live sessions, and optionally a collapsed strip of task squares beside the deck (⚙ → *Tasks strip on the deck*, off by default). Click a task to open a session in its workspace — a new one, or a resume of a session already linked to it. The toolbar's **Run task** box does the same from a task number, without finding the card first.
+
+If the file also describes the tree its tasks came from, the page draws a two-column grid of numbered squares down its right edge — the top level, and the selected item's children — so you can see where you are and jump anywhere in a click.
 
 ![The tasks page: tasks on the right, live sessions grouped by workspace on the left](assets/screenshots/tasks-page.png)
 

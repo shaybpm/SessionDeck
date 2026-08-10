@@ -160,9 +160,26 @@
                 </DataTemplate>
             </Border.Resources>
             <StackPanel Orientation="Horizontal">
-                <!-- column A: the top level. Fixed, never scrolls, ten squares. -->
-                <ItemsControl ItemsSource="{Binding TasksPanel.NavRoots}" VerticalAlignment="Top"
-                              Margin="0,0,4,0" ItemTemplate="{StaticResource NavSquare}"/>
+                <!-- column A: the top level. Fixed, never scrolls, ten squares, with the
+                     "all projects" square above them — the only way out of a tree that does
+                     not mean walking up it a level at a time. -->
+                <StackPanel VerticalAlignment="Top" Margin="0,0,4,0">
+                    <ContentControl Content="{Binding TasksPanel.NavHome}"
+                                    ContentTemplate="{StaticResource NavSquare}"
+                                    Margin="0,0,0,6">
+                        <ContentControl.Style>
+                            <Style TargetType="ContentControl">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TasksPanel.HasNavHome}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ContentControl.Style>
+                    </ContentControl>
+                    <ItemsControl ItemsSource="{Binding TasksPanel.NavRoots}"
+                                  ItemTemplate="{StaticResource NavSquare}"/>
+                </StackPanel>
                 <!-- column B: the selected root's direct children, in a scroll area of its
                      own — the wheel over it scrolls the tree, the wheel past the separator
                      scrolls the tasks, which is WPF's own default and needs no code. The
