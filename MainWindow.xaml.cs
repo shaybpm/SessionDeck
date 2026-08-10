@@ -1616,8 +1616,19 @@ public partial class MainWindow : Window
             SetStatus($"\"{session.DisplayTitle}\" — session file not found (did the project move or get renamed?); opening it would start a new conversation, so it was cancelled");
             return;
         }
-        var (sent, _) = OpenSessionInVscode(ws, session);
-        if (sent) SetStatus($"Opening the session in VSCode: {session.DisplayTitle}");
+        // Say something either way. This used to be `if (sent)`, so every failure - no
+        // connector for that window yet, or a connector whose pipe had died - discarded the
+        // reason it had just been handed and left the click looking like it had not
+        // registered at all (Shay, 10-08-2026: "I can't click it and get to the 4.0
+        // session"). The log line matters for the same reason: nothing in this path wrote
+        // one, so afterwards there was no way to tell a click that failed from a click that
+        // never happened.
+        var (sent, reason) = OpenSessionInVscode(ws, session);
+        LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" " +
+                                (sent ? "sent" : $"FAILED: {reason}"));
+        SetStatus(sent
+            ? $"Opening the session in VSCode: {session.DisplayTitle}"
+            : $"\"{session.DisplayTitle}\" — {reason}");
     }
 
     /// <summary>Resume looks the id up in the workspace's CURRENT transcripts folder — a
