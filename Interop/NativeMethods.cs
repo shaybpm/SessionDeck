@@ -105,6 +105,7 @@ public static class NativeMethods
     public const uint SWP_SHOWWINDOW = 0x0040;
     public const int WM_WINDOWPOSCHANGING = 0x0046;
     public const int WM_SYSCOMMAND = 0x0112;
+    public const int WM_DPICHANGED = 0x02E0;
     public const long SC_SIZE = 0xF000;
     public const long SC_MOVE = 0xF010;
     public const long SC_MAXIMIZE = 0xF030;
