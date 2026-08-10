@@ -146,6 +146,7 @@ public partial class MainWindow : Window
         Vm.TasksPanel.FontScale = config.TaskFontScale > 0 ? config.TaskFontScale : 1.0;
         Vm.AlwaysOnTop = config.AlwaysOnTop;
         Vm.WindowsNotifications = config.WindowsNotifications;
+        Vm.ShowTasksStrip = config.ShowTasksStrip;
         LogService.DebugEnabled = config.DebugLogging;
         Topmost = config.AlwaysOnTop;
 
@@ -301,6 +302,7 @@ public partial class MainWindow : Window
             TaskFontScale = Vm.TasksPanel.FontScale,
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
+            ShowTasksStrip = Vm.ShowTasksStrip,
             DebugLogging = LogService.DebugEnabled,
             TasksFilePath = Vm.TasksFilePath,
             CustomToggles = _customToggleConfigs,
@@ -2080,6 +2082,7 @@ public partial class MainWindow : Window
         VersionMenuItem.Header = $"SessionDeck v{GetType().Assembly.GetName().Version?.ToString(3)}";
         MaximizeSessionMenuItem.IsChecked = Vm.OpenSessionMaximized;
         NotificationsMenuItem.IsChecked = Vm.WindowsNotifications;
+        TasksStripMenuItem.IsChecked = Vm.ShowTasksStrip;
         ShowHiddenToggle.IsChecked = Vm.ShowHidden;
         ActiveOnlyToggle.IsChecked = Vm.ActiveOnly;
         PinTopToggle.IsChecked = Vm.AlwaysOnTop;
@@ -2283,6 +2286,51 @@ public partial class MainWindow : Window
         Vm.WindowsNotifications = NotificationsMenuItem.IsChecked;
         UpdateAttentionEscalation();   // turning it off must drop the badge/tray icon now
         QueueSave();
+    }
+
+    private void TasksStripMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Vm.ShowTasksStrip = TasksStripMenuItem.IsChecked;
+        QueueSave();
+    }
+
+    private void TasksPageButton_Click(object sender, RoutedEventArgs e) => ShowTasksPage();
+
+    private void SearchClear_Click(object sender, RoutedEventArgs e)
+    {
+        SearchBox.Clear();
+        SearchBox.Focus();
+    }
+
+    /// <summary>Run a task by its number: the same flow as its card's button, reached without
+    /// finding the card first (Shay, 10-08-2026). The number resolves against the level on
+    /// screen and then against the file's launch index, so a number from any part of the tree
+    /// works — but only for tasks the producer recorded a directory for, because there is
+    /// nowhere to open the others.</summary>
+    private void RunTask_Click(object sender, RoutedEventArgs e) => RunTypedTask();
+
+    private void RunTaskBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        RunTypedTask();
+        e.Handled = true;
+    }
+
+    private void RunTypedTask()
+    {
+        string number = RunTaskBox.Text.Trim();
+        if (number.Length == 0)
+        {
+            SetStatus("Type a task number first, e.g. 4.13.19");
+            return;
+        }
+        if (Vm.TasksPanel.FindByNumber(number) is not { } task)
+        {
+            SetStatus($"No task {number} in the tasks file — it may be closed, or have no directory recorded");
+            return;
+        }
+        RunTaskBox.Clear();
+        HandleTaskActivate(task, RunTaskBox);
     }
 
     private void StartupMenuItem_Click(object sender, RoutedEventArgs e)

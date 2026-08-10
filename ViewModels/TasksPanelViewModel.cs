@@ -37,10 +37,34 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
 
     public bool HasNav => NavRoots.Count > 0;
 
-    // Where the file said we were on the previous load, and the root the user lit by hand.
-    private string? _lastActiveRoot;
+    private NavSquareViewModel? _navHome;
+    /// <summary>The square above the top column, back to the list of all projects.</summary>
+    public NavSquareViewModel? NavHome
+    {
+        get => _navHome;
+        private set { _navHome = value; Raise(); Raise(nameof(HasNavHome)); }
+    }
+
+    public bool HasNavHome => _navHome != null;
+
+    /// <summary>Every task the producer knows how to start, by number — not just the level on
+    /// screen. Feeds the toolbar's Run box, which has to resolve a number typed from anywhere.</summary>
+    private readonly Dictionary<string, TaskItemViewModel> _launchTargets = new(StringComparer.OrdinalIgnoreCase);
+
+    public int LaunchTargetCount => _launchTargets.Count;
+
+    /// <summary>A task by its number: what is on screen first (it carries the live session
+    /// list), then the wider launch index.</summary>
+    public TaskItemViewModel? FindByNumber(string number)
+    {
+        number = number.Trim().TrimStart('#');
+        if (number.Length == 0) return null;
+        return AllTasks.FirstOrDefault(t => string.Equals(t.Id, number, StringComparison.OrdinalIgnoreCase))
+               ?? (_launchTargets.TryGetValue(number, out var t) ? t : null);
+    }
+
+    // Where the file said we were on the previous load.
     private string? _lastActiveChild;
-    private string? _previewRoot;
 
     private bool _enabled;
     /// <summary>A tasks file path is configured — the strip (and everything else) exists.</summary>
@@ -192,35 +216,38 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
             ? "" : $"{OtherTasks.Count} of {_allOther.Count}";
     }
 
-    /// <summary>Rebuild the grid from the file. A root the user lit by hand survives a reload,
-    /// but only while the view itself has not moved: navigating IS the user saying where they
-    /// want to be, and that has to beat a preview they left behind ten seconds ago.</summary>
+    /// <summary>Rebuild the grid and the launch index from the file. Both columns navigate
+    /// (Shay, 10-08-2026): a click on a top-level square opens that project's page, which is
+    /// what makes the grid the way through the tree rather than a legend beside it. The earlier
+    /// preview-only behaviour, and the state that preserved a hand-picked preview across a
+    /// reload, went with it — the file's own activeRoot is now the single answer to which
+    /// square is lit.</summary>
     private void ApplyNav(TasksDocument? doc)
     {
         NavRoots.Clear();
         NavChildren.Clear();
+        _launchTargets.Clear();
         var nav = doc?.NavIndex;
-        if (nav != null && doc != null)
-            foreach (var entry in nav.Roots)
+        if (doc != null)
+        {
+            foreach (var entry in nav?.Roots ?? new List<NavEntry>())
             {
                 var square = NavSquareViewModel.From(entry, doc.StatusColors);
                 if (square.Number.Length > 0) NavRoots.Add(square);
             }
+            NavHome = nav?.Home is { } home ? NavSquareViewModel.From(home, doc.StatusColors) : null;
+            foreach (var entry in doc.LaunchIndex)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id) || string.IsNullOrWhiteSpace(entry.Name)) continue;
+                _launchTargets[entry.Id!.Trim()] = TaskItemViewModel.From(entry, doc.StatusColors);
+            }
+        }
+        else NavHome = null;
         Raise(nameof(HasNav));
+        Raise(nameof(LaunchTargetCount));
 
-        if (nav?.ActiveRoot != _lastActiveRoot) _previewRoot = null;
-        _lastActiveRoot = nav?.ActiveRoot;
         _lastActiveChild = nav?.ActiveChild;
-        Select(NavRoots.FirstOrDefault(r => r.Number == (_previewRoot ?? _lastActiveRoot)));
-    }
-
-    /// <summary>Light a root and fill column B with its children. Preview ONLY: the task list
-    /// must not move, or every glance at the tree would cost the user the place they are
-    /// standing in.</summary>
-    public void PreviewRoot(NavSquareViewModel root)
-    {
-        _previewRoot = root.Number;
-        Select(root);
+        Select(NavRoots.FirstOrDefault(r => r.Number == nav?.ActiveRoot));
     }
 
     private void Select(NavSquareViewModel? root)

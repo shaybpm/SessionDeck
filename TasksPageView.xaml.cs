@@ -23,22 +23,18 @@ public partial class TasksPageView : UserControl
         }
     }
 
-    /// <summary>Both columns of the navigation grid arrive here, told apart by the collection
-    /// the square belongs to rather than by two near-identical templates.
-    ///
-    /// Column A previews and nothing more: it lights column B and leaves the task list where
-    /// it is. Column B navigates. The asymmetry is the point — navigating regenerates the file
-    /// and moves the list, so if merely LOOKING for something in the tree also moved it, every
-    /// glance would cost the user the place they were standing in.</summary>
+    /// <summary>Every square of the navigation grid navigates — the home square to the list of
+    /// all projects, a top-level square into that project, a child square into itself (Shay,
+    /// 10-08-2026: "so I can move quickly between the task pages"). Column A used to only
+    /// preview, lighting column B without moving the list; he asked for the grid to be how he
+    /// gets around, so the asymmetry is gone.</summary>
     private void NavSquare_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement { DataContext: NavSquareViewModel square } ||
-            Owner is not { } owner) return;
-        if (owner.Vm.TasksPanel.NavRoots.Contains(square))
-            owner.Vm.TasksPanel.PreviewRoot(square);
-        else
-            owner.OpenNavTarget(square);
-        e.Handled = true;
+        if (sender is FrameworkElement { DataContext: NavSquareViewModel square })
+        {
+            Owner?.OpenNavTarget(square);
+            e.Handled = true;
+        }
     }
 
     private void Session_MouseUp(object sender, MouseButtonEventArgs e)

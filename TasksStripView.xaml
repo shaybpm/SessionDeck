@@ -34,6 +34,10 @@
                 <DataTrigger Binding="{Binding TasksPanel.Enabled}" Value="False">
                     <Setter Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
+                <!-- ⚙ menu, off by default since 10-08-2026 (Shay: the column is not needed) -->
+                <DataTrigger Binding="{Binding ShowTasksStrip}" Value="False">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </UserControl.Style>

@@ -21,6 +21,10 @@ public class TasksDocument
     /// knows the whole tree may describe it here and the deck draws it as a grid. Missing =
     /// no grid, which is what a file written before this existed should do.</summary>
     public NavIndex? NavIndex { get; set; }
+    /// <summary>Optional: every task the producer knows how to start, not just the level on
+    /// screen. It is what lets the toolbar's Run box take a task NUMBER from anywhere and open
+    /// a session for it. Same record shape as a task; only id, name and workspace are read.</summary>
+    public List<TaskEntry> LaunchIndex { get; set; } = new();
 }
 
 /// <summary>The two-column navigation grid: the top level, and each top-level item's direct
@@ -29,6 +33,9 @@ public class NavIndex
 {
     public string? ActiveRoot { get; set; }
     public string? ActiveChild { get; set; }
+    /// <summary>Optional square above the top-level column: the way back out of a tree without
+    /// climbing it level by level.</summary>
+    public NavEntry? Home { get; set; }
     public List<NavEntry> Roots { get; set; } = new();
 }
 

@@ -70,6 +70,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool AlwaysOnTop { get; set; }                    // 📌 pin: deck window stays topmost
     public bool WindowsNotifications { get; set; } = true;   // ⚙ menu: OS-level attention escalation
 
+    private bool _showTasksStrip;
+    /// <summary>⚙ menu: the collapsed tasks strip at the deck's right edge. Bound, so the
+    /// strip appears and disappears without a restart.</summary>
+    public bool ShowTasksStrip
+    {
+        get => _showTasksStrip;
+        set { if (_showTasksStrip != value) { _showTasksStrip = value; Raise(); } }
+    }
+
     public WorkspaceViewModel? FindById(int id)
         => Workspaces.FirstOrDefault(w => w.Id == id);
 

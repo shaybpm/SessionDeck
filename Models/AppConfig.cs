@@ -286,6 +286,11 @@ public class AppConfig
     /// balloon + taskbar overlay badge + one-shot flash. Only ever fires when the deck is
     /// neither pinned nor zoned — see MainWindow.UpdateAttentionEscalation.</summary>
     public bool WindowsNotifications { get; set; } = true;
+    /// <summary>The narrow column of task squares at the right edge of the deck. Off by
+    /// default (Shay, 10-08-2026): since the tasks panel became one level at a time the strip
+    /// shows whichever level the page was last left on, which is rarely the one you want, and
+    /// the toolbar's toolbar button opens the page anyway. The ⚙ menu brings it back.</summary>
+    public bool ShowTasksStrip { get; set; }
     public List<CustomToggleConfig> CustomToggles { get; set; } = new();
     /// <summary>
     /// How long each tool may sit without a result before the deck reads it as an open
