@@ -1953,7 +1953,11 @@ public partial class MainWindow : Window
         // Anything that stopped needing attention is re-armed for its next event.
         _notifiedSessions.IntersectWith(attention.Select(p => p.S.SessionId));
 
-        bool buried = Vm.WindowsNotifications && !Vm.AlwaysOnTop && Vm.ZoneMode == ZoneMode.Off;
+        // "Buried" = the deck may be out of sight, so a balloon is worth it. A zone that
+        // RESERVES work area cannot be covered by a maximized window and needs no balloon; a
+        // zone that only places the window (Full, since 10-08-2026) can be covered like any
+        // ordinary window, so it counts as buried exactly as Off does.
+        bool buried = Vm.WindowsNotifications && !Vm.AlwaysOnTop && !ModeNames.ReservesWorkArea(Vm.ZoneMode);
         if (!buried || IsActive || attention.Count == 0)
         {
             // Seed instead of notify: a session that was already blinking when the deck was

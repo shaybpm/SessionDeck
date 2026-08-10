@@ -57,28 +57,46 @@ public sealed class AppBarService
             return;
         }
 
-        if (!_registered)
+        // Remember where the window was before the first zone, so un-zoning puts it back.
+        // _mode is still the PREVIOUS mode here, so this fires on Off → zoned and nowhere else.
+        if (_mode == ZoneMode.Off) SaveWindowBounds();
+
+        // A mode that reserves needs the appbar registration; one that does not must give it
+        // back, or switching Half → Full would leave the old strip reserved forever.
+        if (ModeNames.ReservesWorkArea(mode))
         {
-            SaveWindowBounds();
-            var abdNew = NewData();
-            abdNew.uCallbackMessage = _callbackMsg;
-            NativeMethods.SHAppBarMessage(NativeMethods.ABM_NEW, ref abdNew);
-            _registered = true;
+            if (!_registered)
+            {
+                var abdNew = NewData();
+                abdNew.uCallbackMessage = _callbackMsg;
+                NativeMethods.SHAppBarMessage(NativeMethods.ABM_NEW, ref abdNew);
+                _registered = true;
+            }
         }
+        else Unregister();
 
         _mode = mode;
         _monitor = monitor;
         SetPosition();
     }
 
-    public void Remove()
+    /// <summary>Hand the work-area reservation back, staying zoned. The window keeps its place
+    /// and its move/resize lock; only the shell's bookkeeping is released.</summary>
+    private void Unregister()
     {
-        _mode = ZoneMode.Off;
         if (!_registered) return;
         var abd = NewData();
         NativeMethods.SHAppBarMessage(NativeMethods.ABM_REMOVE, ref abd);
         _registered = false;
         _hasAppliedRect = false;   // a fresh registration must post its reservation again
+    }
+
+    public void Remove()
+    {
+        bool wasZoned = _mode != ZoneMode.Off;
+        _mode = ZoneMode.Off;
+        Unregister();
+        if (!wasZoned) return;
         if (_hasSavedBounds)
         {
             NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero,
@@ -90,7 +108,11 @@ public sealed class AppBarService
     private void SetPosition()
     {
         if (_monitor is null) return;
-        RECT mon = _monitor.Bounds;
+        bool reserves = ModeNames.ReservesWorkArea(_mode);
+        // A reserving mode lays out on the monitor and lets ABM_QUERYPOS trim it for the
+        // taskbar and any other appbar. A non-reserving one never gets that answer, so it
+        // lays out on the work area itself — which is what keeps Full off the taskbar.
+        RECT mon = reserves ? _monitor.Bounds : CurrentWorkArea();
         bool rightEdge = _mode is ZoneMode.HalfRight or ZoneMode.QuarterRight or ZoneMode.CustomRight;
         uint edge = rightEdge ? NativeMethods.ABE_RIGHT : NativeMethods.ABE_LEFT;
         int width = _mode switch
@@ -101,36 +123,42 @@ public sealed class AppBarService
                 (int)Math.Round(mon.Width * _customFraction),
             _ => mon.Width / 2,
         };
+
         // Never reserve a zone narrower than the window's MinWidth: below it the
         // toolbar (incl. the zone combo itself) gets clipped and the user cannot
         // un-zone from the UI (bug 2026-07-22 — 13% custom zone buried the controls).
         // And never wider than the monitor less MinFreeWorkAreaPx. See that constant for
-        // what a zero-work-area reservation does to the shell.
-        int maxWidth = Math.Max(1, mon.Width - MinFreeWorkAreaPx);
-        width = Math.Clamp(width, Math.Min(MinZoneWidthPx(), maxWidth), maxWidth);
+        // what a zero-work-area reservation does to the shell. A mode that reserves nothing
+        // is not bound by either: Full may take the whole monitor because it leaves the work
+        // area alone (see ModeNames.ReservesWorkArea).
+        if (reserves)
+        {
+            int maxWidth = Math.Max(1, mon.Width - MinFreeWorkAreaPx);
+            width = Math.Clamp(width, Math.Min(MinZoneWidthPx(), maxWidth), maxWidth);
+        }
 
         var abd = NewData();
         abd.uEdge = edge;
         abd.rc = new RECT { Left = mon.Left, Top = mon.Top, Right = mon.Right, Bottom = mon.Bottom };
-        // Full is narrowed like every other mode now: it is the widest zone, not an unbounded
-        // one. Letting it through as the whole monitor rect is what left the display with no
-        // work area at all.
         if (rightEdge) abd.rc.Left = mon.Right - width;
         else abd.rc.Right = mon.Left + width;
 
-        NativeMethods.SHAppBarMessage(NativeMethods.ABM_QUERYPOS, ref abd);
-        // QUERYPOS may trim for the taskbar/other appbars; re-assert our width from the granted edge.
-        if (edge == NativeMethods.ABE_LEFT) abd.rc.Right = Math.Min(abd.rc.Left + width, mon.Right);
-        else abd.rc.Left = Math.Max(abd.rc.Right - width, mon.Left);
-
-        // Re-announce the reservation only when it actually moved. Every ABM_SETPOS makes the
-        // shell recompute and answer with ABN_POSCHANGED, which lands in WndProc and calls this
-        // method straight back. Agenda item 4.13.18.
-        if (!_hasAppliedRect || !SameRect(_appliedRect, abd.rc))
+        if (reserves)
         {
-            _appliedRect = abd.rc;
-            _hasAppliedRect = true;
-            NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
+            NativeMethods.SHAppBarMessage(NativeMethods.ABM_QUERYPOS, ref abd);
+            // QUERYPOS may trim for the taskbar/other appbars; re-assert our width from the granted edge.
+            if (edge == NativeMethods.ABE_LEFT) abd.rc.Right = Math.Min(abd.rc.Left + width, mon.Right);
+            else abd.rc.Left = Math.Max(abd.rc.Right - width, mon.Left);
+
+            // Re-announce the reservation only when it actually moved. Every ABM_SETPOS makes
+            // the shell recompute and answer with ABN_POSCHANGED, which lands in WndProc and
+            // calls this method straight back. Agenda item 4.13.18.
+            if (!_hasAppliedRect || !SameRect(_appliedRect, abd.rc))
+            {
+                _appliedRect = abd.rc;
+                _hasAppliedRect = true;
+                NativeMethods.SHAppBarMessage(NativeMethods.ABM_SETPOS, ref abd);
+            }
         }
 
         // Win10/11 windows carry invisible resize borders: the visible (DWM) frame is
@@ -161,6 +189,17 @@ public sealed class AppBarService
                 NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
         }
         finally { _selfPositioning = false; }
+    }
+
+    /// <summary>The zone monitor's work area, read live rather than from the snapshot handed to
+    /// Apply: that snapshot may have been taken while our own reservation was still shrinking
+    /// the very area we are about to lay out on. Called only on the non-reserving path, and
+    /// only after ABM_REMOVE has returned, so the shell has already given the space back.</summary>
+    private RECT CurrentWorkArea()
+    {
+        if (_monitor is null) return default;
+        var live = MonitorService.GetMonitors().FirstOrDefault(m => m.Device == _monitor.Device);
+        return live?.WorkArea ?? _monitor.WorkArea;
     }
 
     /// <summary>The window's MinWidth (DIP → device px at its current DPI); 50 when unset.</summary>
@@ -223,6 +262,19 @@ public sealed class AppBarService
         {
             SetPosition();
             handled = true;
+        }
+        else if (_mode != ZoneMode.Off && msg == NativeMethods.WM_DPICHANGED)
+        {
+            // Landing on a monitor whose DPI differs from the one the window was last on makes
+            // WPF re-apply the window's DIP size at the new scale, which on a 125% display
+            // inflates a correctly-placed zone by exactly a quarter (measured 10-08-2026:
+            // 1936x1029 asked for, 2418x1284 on screen, a 1920x1080 monitor overflowed on both
+            // axes). Snap back once WPF has finished, hence the dispatcher hop rather than a
+            // call from inside the message. A reserving zone used to be rescued from this by
+            // the shell's own ABN_POSCHANGED landing right behind it; a zone that reserves
+            // nothing gets no such callback and stayed inflated.
+            _source?.Dispatcher.BeginInvoke(new Action(SetPosition),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
         else if (_mode != ZoneMode.Off && msg == NativeMethods.WM_SYSCOMMAND)
         {

@@ -11,6 +11,23 @@ public enum DeckSort { Alphabetical, Recent, Frequency }
 
 public static class ModeNames
 {
+    /// <summary>
+    /// Does this zone take work area away from the monitor (the AppBar reservation), or does
+    /// it only place the window?
+    ///
+    /// Reserving exists so a MAXIMIZED window stays out of the deck's strip and lands in the
+    /// rest of the monitor instead. `Full` has no rest of the monitor, so the reservation has
+    /// nothing left to protect and only takes: measured 10-08-2026 on Shay's second display,
+    /// Windows reported a work area of 13x816 on a 1536x864 screen, which is not a strip, it
+    /// is a monitor no window can be opened, restored or maximized on any more. The deck then
+    /// looked like it was pinned over everything while the pin was off — the window was never
+    /// topmost (verified: pushed to the bottom of the z-order it stayed there), the monitor
+    /// simply had nowhere else for a window to be. Full now sizes the deck to the monitor and
+    /// reserves nothing, so other windows use the screen normally and land above or below the
+    /// deck exactly as the 📌 pin says.
+    /// </summary>
+    public static bool ReservesWorkArea(ZoneMode m) => m is not (ZoneMode.Off or ZoneMode.Full);
+
     public static string ToName(ZoneMode m) => m switch
     {
         ZoneMode.Off => "off",
