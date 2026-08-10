@@ -1583,7 +1583,15 @@ public partial class MainWindow : Window
         ws.RefreshSessionVisibility();
         SortSessions(ws);
         SortWorkspaces();
-        RefreshBlinkAndSummary();
+        // Starting or ending a session is exactly what ⚡ ("open only") filters on, so the
+        // filter has to be re-applied here. It used to run only when a toggle was flipped, a
+        // search changed, or a workspace was added or removed — so a card kept whatever
+        // visibility it happened to have at that moment. Both halves were wrong and both were
+        // visible: a card whose last session closed stayed on the deck showing nothing (Shay,
+        // on pybpm-server, 10-08-2026), and a card already filtered out did not come back when
+        // a session opened on it. ApplyDeckVisibility ends in RefreshBlinkAndSummary, so it
+        // replaces the call that was here instead of adding a second pass.
+        ApplyDeckVisibility();
         QueueSave();
     }
 
