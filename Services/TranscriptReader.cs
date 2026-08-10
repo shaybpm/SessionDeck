@@ -36,7 +36,14 @@ public sealed record TranscriptInfo(
 /// <param name="IsAsk">True for AskUserQuestion/ExitPlanMode — an unanswered call is
 /// definitive proof Claude is blocked, no waiting period needed. False for every other
 /// tool, where "no result yet" is indistinguishable from "still executing".</param>
-public sealed record PendingCall(string ToolName, string Detail, DateTime StartedAtUtc, bool IsAsk);
+/// <param name="HasOlderPending">True when another call issued earlier is still pending
+/// too. Claude Code flushes the tool_results of one assistant turn together, so a fast
+/// tool called alongside a slow one (an Agent subagent, a long Bash) shows no result for
+/// as long as its sibling runs. That is not a user block, and ageing it as one is what
+/// pinned cards orange for minutes (measured 2026-08-10: an Edit issued 2s after an Agent
+/// stayed resultless for the Agent's full 3 minutes).</param>
+public sealed record PendingCall(string ToolName, string Detail, DateTime StartedAtUtc, bool IsAsk,
+    bool HasOlderPending = false);
 
 /// <summary>
 /// Single-pass transcript scanner. Best-effort: any parse failure yields nulls and the
@@ -204,7 +211,13 @@ public static class TranscriptReader
                 return call;
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call))
-                return call;
+            {
+                // Is anything issued before it still pending? Then this call is most
+                // likely waiting on its own batch, not on the user — see HasOlderPending.
+                bool older = false;
+                for (int j = 0; j < i && !older; j++) older = pending.ContainsKey(order[j]);
+                return call with { HasOlderPending = older };
+            }
         return null;
     }
 

@@ -97,6 +97,11 @@ The thresholds were derived by measuring 11,000+ real tool calls. The decisive c
 
 `Agent` is excluded on purpose: 65% of subagent runs exceed 30 seconds and 37% exceed 120, so no threshold is both short enough to be useful and quiet enough to trust. A false alarm corrects itself — the card returns to blue as soon as the tool finishes.
 
+Two conditions suppress the inference entirely, both added in v0.9.32:
+
+- **A sibling call is still pending.** Claude Code writes the `tool_result`s of one assistant turn together, so a fast tool issued alongside a slow one shows no result for as long as the slow one runs. Excluding `Agent` from the table does not help here: the scanner reports the *newest* pending call, which is the `Edit`, not the `Agent` two seconds before it. Measured 2026-08-10 on a live session — an `Edit` issued 2s after an `Agent` stayed resultless for the subagent's full 3 minutes and pinned the card orange twice. A call with anything older still pending is therefore never aged.
+- **The session runs in `bypassPermissions`.** No permission dialog can open there, so ageing a call into one is a guaranteed false alarm. `AskUserQuestion` / `ExitPlanMode` still block in that mode and are still detected, and a `PermissionRequest` hook that actually reported a dialog is still believed — only the guess is dropped.
+
 - The answer appeared → back to `working`; the `Stop` hook (which does fire in VSCode) takes it from there to `done`.
 - Subagent lines (`isSidechain`) are filtered out — only the main conversation can block the user.
 - A `waiting` state that came from a hook is not cleared by the scanner — except `PermissionRequest`, which explicitly asks for it through `--permission-dialog`, because no hook closes it.

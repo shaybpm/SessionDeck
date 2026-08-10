@@ -698,7 +698,15 @@ public partial class MainWindow : Window
         bool hookConfirmed = call != null && session.PermissionDialogCallAt == call.StartedAtUtc;
         if (!hookConfirmed) session.PermissionDialogCallAt = null;
 
-        bool blocked = call != null && (call.IsAsk || hookConfirmed || IsAgedPermissionDialog(call));
+        // A session running with permissions bypassed can never open a permission dialog,
+        // so ageing an unfinished tool call into one is a guaranteed false alarm there.
+        // AskUserQuestion / ExitPlanMode still block in that mode, and a hook that
+        // actually reported a dialog is still believed — only the guess is dropped.
+        bool guessAllowed = !string.Equals(session.PermissionMode, "bypassPermissions",
+                                           StringComparison.OrdinalIgnoreCase);
+
+        bool blocked = call != null &&
+                       (call.IsAsk || hookConfirmed || (guessAllowed && IsAgedPermissionDialog(call)));
 
         if (blocked)
         {
@@ -752,7 +760,8 @@ public partial class MainWindow : Window
     }
 
     private bool IsAgedPermissionDialog(PendingCall call)
-        => Vm.PermissionWaitToolSeconds.TryGetValue(call.ToolName, out int seconds)
+        => !call.HasOlderPending
+           && Vm.PermissionWaitToolSeconds.TryGetValue(call.ToolName, out int seconds)
            && seconds > 0
            && (DateTime.UtcNow - call.StartedAtUtc).TotalSeconds >= seconds;
 
