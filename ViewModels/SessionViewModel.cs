@@ -231,9 +231,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         {
             var lines = new List<string>();
             if (_detail.Length > 0) lines.Add(_detail);
-            lines.Add($"started: {StartedAt:HH:mm:ss}");
-            if (LastEventAt is { } le) lines.Add($"last event: {le:HH:mm:ss}");
-            if (EndedAt is { } ea) lines.Add($"ended: {ea:HH:mm:ss}" + (_endReason != null ? $" ({_endReason})" : ""));
+            // Date added 2026-08-11: a bare clock reads as "today" even when the event
+            // was yesterday. Seconds dropped — the minute is the useful resolution here.
+            lines.Add($"started: {StartedAt:HH:mm d'/'M}");
+            if (LastEventAt is { } le) lines.Add($"last event: {le:HH:mm d'/'M}");
+            if (EndedAt is { } ea) lines.Add($"ended: {ea:HH:mm d'/'M}" + (_endReason != null ? $" ({_endReason})" : ""));
             return string.Join(Environment.NewLine, lines);
         }
     }
