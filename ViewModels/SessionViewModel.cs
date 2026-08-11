@@ -21,6 +21,16 @@ public static class SessionStatusNames
         _ => "idle",
     };
 
+    /// <summary>The word the card shows. Only Done differs from the wire name: it marks the end
+    /// of a turn, not the end of the work, and "done" reads as the second — it was taken for
+    /// "this task is finished" on a session that was mid-task and just waiting for a reply.
+    /// The wire name is deliberately left alone, so hooks, the config and the CLI keep matching.</summary>
+    public static string ToDisplay(SessionStatus s) => s switch
+    {
+        SessionStatus.Done => "your turn",
+        _ => ToName(s),
+    };
+
     public static bool TryParse(string s, out SessionStatus status)
     {
         status = s.ToLowerInvariant() switch
@@ -209,7 +219,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     public string? EndReason
     {
         get => _endReason;
-        set { if (_endReason != value) { _endReason = value; Raise(nameof(TooltipText)); Raise(nameof(StatusText)); } }
+        set { if (_endReason != value) { _endReason = value; Raise(nameof(TooltipText)); Raise(nameof(StatusText)); Raise(nameof(StatusDisplay)); } }
     }
 
     public DateTime? LastEventAt { get; set; }
@@ -278,9 +288,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         set { if (_visible != value) { _visible = value; Raise(); } }
     }
 
-    public string StatusText => Closed
-        ? "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "")
-        : SessionStatusNames.ToName(_status);
+    /// <summary>The protocol name — what the CLI prints and what a script may match on.</summary>
+    public string StatusText => Closed ? ClosedLabel : SessionStatusNames.ToName(_status);
+
+    /// <summary>What the card shows. Same states, friendlier words; see ToDisplay.</summary>
+    public string StatusDisplay => Closed ? ClosedLabel : SessionStatusNames.ToDisplay(_status);
+
+    private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");
 
     /// <summary>Status→style mapping resolver, injected once at startup from config.</summary>
     public static Func<SessionStatus, StatusStyle> ResolveStyle { get; set; } =
@@ -334,6 +348,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     {
         Raise(nameof(Status));
         Raise(nameof(StatusText));
+        Raise(nameof(StatusDisplay));
         Raise(nameof(BorderBrush));
         Raise(nameof(Closed));
         Raise(nameof(TooltipText));

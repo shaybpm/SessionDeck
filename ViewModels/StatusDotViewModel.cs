@@ -17,7 +17,7 @@ public sealed class StatusDotViewModel : INotifyPropertyChanged, IBlinkable
     public int Count { get; init; }
 
     public string Tooltip =>
-        $"{Count} sessions in status {SessionStatusNames.ToName(Status)}" +
+        $"{Count} sessions in status {SessionStatusNames.ToDisplay(Status)}" +
         (Blinking ? " (waiting to be acknowledged)" : "");
 
     // ---- IBlinkable ----
