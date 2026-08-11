@@ -2030,7 +2030,7 @@ public partial class MainWindow : Window
     private static string AttentionWord(SessionStatus status) => status switch
     {
         SessionStatus.Waiting => "waiting for you",
-        SessionStatus.Done => "finished",
+        SessionStatus.Done => "your turn",
         SessionStatus.He => "wrapped up (HE)",
         SessionStatus.Error => "error",
         _ => SessionStatusNames.ToName(status),
