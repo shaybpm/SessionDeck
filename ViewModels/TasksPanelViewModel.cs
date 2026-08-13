@@ -122,6 +122,9 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
     /// <summary>newSessionPrompt template from the file's envelope (may be null).</summary>
     public string? NewSessionPrompt { get; private set; }
 
+    /// <summary>newSessionPromptFast template from the envelope (may be null — see the model).</summary>
+    public string? NewSessionPromptFast { get; private set; }
+
     private string _generatedText = "";
     public string GeneratedText
     {
@@ -194,10 +197,12 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
             WarningText = "";
             GeneratedText = "";
             NewSessionPrompt = null;
+            NewSessionPromptFast = null;
             return;
         }
         ErrorText = "";
         NewSessionPrompt = string.IsNullOrWhiteSpace(doc.NewSessionPrompt) ? null : doc.NewSessionPrompt;
+        NewSessionPromptFast = string.IsNullOrWhiteSpace(doc.NewSessionPromptFast) ? null : doc.NewSessionPromptFast;
         GeneratedText = FormatGenerated(doc.Generated);
         foreach (var entry in doc.Tasks)
         {
@@ -281,6 +286,7 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
         WarningText = "";
         GeneratedText = "";
         NewSessionPrompt = null;
+        NewSessionPromptFast = null;
     }
 
     private static string FormatGenerated(string? iso)

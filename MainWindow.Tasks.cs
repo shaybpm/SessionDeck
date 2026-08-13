@@ -127,8 +127,11 @@ public partial class MainWindow
 
     /// <summary>Click on a task square / its sessions button: no sessions → straight to a
     /// new session in its workspace; otherwise a dropdown of "new session" + the task's
-    /// sessions (live → focus, dead → real resume).</summary>
-    public void HandleTaskActivate(TaskItemViewModel task, FrameworkElement anchor)
+    /// sessions (live → focus, dead → real resume).
+    ///
+    /// <paramref name="fast"/> only ever reaches a NEW session — resuming an existing one
+    /// re-enters a conversation that already chose its own opening.</summary>
+    public void HandleTaskActivate(TaskItemViewModel task, FrameworkElement anchor, bool fast = false)
     {
         if (!task.HasTarget)
         {
@@ -137,15 +140,15 @@ public partial class MainWindow
         }
         if (task.Sessions.Count == 0)
         {
-            StartTaskNewSession(task);
+            StartTaskNewSession(task, fast);
             return;
         }
 
         // LTR menu with English items; each item's own direction still follows its header
         // (App.xaml MenuItem style), so a Hebrew session title renders RTL inside it.
         var menu = new ContextMenu();
-        var newItem = new MenuItem { Header = "+ New session" };
-        newItem.Click += (_, _) => StartTaskNewSession(task);
+        var newItem = new MenuItem { Header = fast ? "+ New session (fast)" : "+ New session" };
+        newItem.Click += (_, _) => StartTaskNewSession(task, fast);
         newItem.IsEnabled = task.HasWorkspace;
         menu.Items.Add(newItem);
         menu.Items.Add(new Separator());
@@ -250,14 +253,14 @@ public partial class MainWindow
             SetStatus($"\"{task.Name}\" — launching VSCode failed");
     }
 
-    private void StartTaskNewSession(TaskItemViewModel task)
+    private void StartTaskNewSession(TaskItemViewModel task, bool fast = false)
     {
         if (!task.HasWorkspace)
         {
             SetStatus($"\"{task.Name}\" — the task has no workspace to open a session in");
             return;
         }
-        string? prompt = BuildNewSessionPrompt(task);
+        string? prompt = BuildNewSessionPrompt(task, fast);
         if (Vm.FindByPath(task.WorkspacePath) is { } ws)
         {
             NewSessionInVscode(ws, prompt);
@@ -279,9 +282,30 @@ public partial class MainWindow
 
     /// <summary>newSessionPrompt from the file's envelope with &lt;id&gt;/&lt;name&gt;
     /// filled in; null (no template) = the session opens empty. Applies ONLY to new
-    /// sessions opened from a task (T-0116).</summary>
-    private string? BuildNewSessionPrompt(TaskItemViewModel task)
-        => Vm.TasksPanel.NewSessionPrompt?
+    /// sessions opened from a task (T-0116).
+    ///
+    /// <paramref name="fast"/> asks for the short form of a coordinator session. The producer
+    /// owns that wording too, so we prefer its newSessionPromptFast; without one we suffix the
+    /// normal template, which keeps the modifier working on a tasks file written before the
+    /// field existed (Shay, 13-08-2026).</summary>
+    private string? BuildNewSessionPrompt(TaskItemViewModel task, bool fast = false)
+    {
+        string? template = Vm.TasksPanel.NewSessionPrompt;
+        if (fast)
+            template = Vm.TasksPanel.NewSessionPromptFast
+                       ?? (template == null ? null : template + " --fast");
+        return template?
             .Replace("<id>", task.Id, StringComparison.OrdinalIgnoreCase)
             .Replace("<name>", task.Name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Is this task number a coordinator's — the structural mark being a trailing
+    /// ".0", or the bare "0" of the coordinator above all trees. The fast form is a property
+    /// of how a COORDINATOR session opens, so it is refused on any other number rather than
+    /// silently sent to a session that has no shorter mode to enter (Shay, 13-08-2026).</summary>
+    public static bool IsCoordinatorNumber(string number)
+    {
+        number = number.Trim().TrimStart('#');
+        return number == "0" || number.EndsWith(".0", StringComparison.Ordinal);
+    }
 }
