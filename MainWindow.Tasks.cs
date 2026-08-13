@@ -130,9 +130,18 @@ public partial class MainWindow
     /// sessions (live → focus, dead → real resume).
     ///
     /// <paramref name="fast"/> only ever reaches a NEW session — resuming an existing one
-    /// re-enters a conversation that already chose its own opening.</summary>
+    /// re-enters a conversation that already chose its own opening.
+    ///
+    /// Ctrl is read HERE rather than at each call site, and the coordinator check lives here
+    /// too. Every way into a task — its card, the strip, the nav grid, the Run box — funnels
+    /// through this method, so this is the only place where the modifier is guaranteed to be
+    /// seen. Asking each call site to pass it is what made Ctrl work in the Run box and
+    /// nowhere else (Shay, 13-08-2026).</summary>
     public void HandleTaskActivate(TaskItemViewModel task, FrameworkElement anchor, bool fast = false)
     {
+        bool requested = fast || CtrlHeld;
+        bool honored = requested && IsCoordinatorNumber(task.Id);
+
         if (!task.HasTarget)
         {
             SetStatus($"\"{task.Name}\" — the task has no workspace and no sessions");
@@ -140,15 +149,19 @@ public partial class MainWindow
         }
         if (task.Sessions.Count == 0)
         {
-            StartTaskNewSession(task, fast);
+            StartTaskNewSession(task, honored);
+            WarnIfFastIgnored(task, requested, honored);
             return;
         }
 
         // LTR menu with English items; each item's own direction still follows its header
         // (App.xaml MenuItem style), so a Hebrew session title renders RTL inside it.
         var menu = new ContextMenu();
-        var newItem = new MenuItem { Header = fast ? "+ New session (fast)" : "+ New session" };
-        newItem.Click += (_, _) => StartTaskNewSession(task, fast);
+        var newItem = new MenuItem { Header = honored ? "+ New session (fast)" : "+ New session" };
+        // Ctrl counts whether it was held when the menu opened or when the item is picked: the
+        // menu is a pause in the middle of one gesture, and either end of it states the intent.
+        newItem.Click += (_, _) =>
+            StartTaskNewSession(task, honored || (CtrlHeld && IsCoordinatorNumber(task.Id)));
         newItem.IsEnabled = task.HasWorkspace;
         menu.Items.Add(newItem);
         menu.Items.Add(new Separator());
@@ -170,6 +183,16 @@ public partial class MainWindow
         }
         menu.PlacementTarget = anchor;
         menu.IsOpen = true;
+        WarnIfFastIgnored(task, requested, honored);
+    }
+
+    /// <summary>Say when a fast request was dropped. It still opens the task — a stray Ctrl
+    /// must not cost a launch — but silence would leave the modifier looking broken, which is
+    /// exactly how this reached Shay in the first place.</summary>
+    private void WarnIfFastIgnored(TaskItemViewModel task, bool requested, bool honored)
+    {
+        if (requested && !honored)
+            SetStatus($"{task.Id} is not a coordinator — opened normally; the fast form is a coordinator's only");
     }
 
     /// <summary>A click on a column-B square: do what clicking that item's CARD would do.

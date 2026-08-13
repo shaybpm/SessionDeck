@@ -2380,13 +2380,10 @@ public partial class MainWindow : Window
             SetStatus($"No task {number} in the tasks file — it may be closed, or have no directory recorded");
             return;
         }
-        // A number that is not a coordinator's still runs — a stray Ctrl must not cost a launch —
-        // but it says so, because a modifier that quietly does nothing is worse than one that refuses.
-        bool fast = fastRequested && IsCoordinatorNumber(number);
         RunTaskBox.Clear();
-        HandleTaskActivate(task, RunTaskBox, fast);
-        if (fastRequested && !fast)
-            SetStatus($"{number} is not a coordinator — opened normally; the fast form is a coordinator's only");
+        // Whether the number is a coordinator's, and what to say when it is not, is decided in
+        // HandleTaskActivate so that every entry point answers the same way.
+        HandleTaskActivate(task, RunTaskBox, fastRequested);
     }
 
     private void StartupMenuItem_Click(object sender, RoutedEventArgs e)
