@@ -15,6 +15,13 @@ public class TasksDocument
     /// <summary>Template for a new session opened FROM a task, with &lt;id&gt;/&lt;name&gt;
     /// placeholders. Missing = new sessions start empty.</summary>
     public string? NewSessionPrompt { get; set; }
+    /// <summary>Optional second template, used when the launch asked for the short form of a
+    /// coordinator session (Shay, 13-08-2026). Same placeholders. The wording of a launch
+    /// prompt belongs to the producer exactly like <see cref="NewSessionPrompt"/> does, so the
+    /// deck reads it rather than inventing one; missing = the deck falls back to the normal
+    /// template with a " --fast" suffix, which is what makes this work before the producer
+    /// knows the field exists.</summary>
+    public string? NewSessionPromptFast { get; set; }
     public List<TaskEntry> Tasks { get; set; } = new();
     /// <summary>Optional navigation map for the tree the tasks belong to. The panel shows one
     /// level at a time, so the task list alone cannot say what else exists; a producer that

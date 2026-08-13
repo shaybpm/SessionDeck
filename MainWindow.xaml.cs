@@ -2335,30 +2335,58 @@ public partial class MainWindow : Window
     /// screen and then against the file's launch index, so a number from any part of the tree
     /// works — but only for tasks the producer recorded a directory for, because there is
     /// nowhere to open the others.</summary>
-    private void RunTask_Click(object sender, RoutedEventArgs e) => RunTypedTask();
+    private void RunTask_Click(object sender, RoutedEventArgs e) => RunTypedTask(CtrlHeld);
 
     private void RunTaskBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != System.Windows.Input.Key.Enter) return;
-        RunTypedTask();
+        RunTypedTask(CtrlHeld);
         e.Handled = true;
     }
 
-    private void RunTypedTask()
+    /// <summary>Ctrl on Run / Enter asks for the short form of a coordinator session
+    /// (Shay, 13-08-2026).</summary>
+    private static bool CtrlHeld
+        => (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control)
+           == System.Windows.Input.ModifierKeys.Control;
+
+    /// <summary>The words the box accepts AFTER a number as the same request Ctrl makes — the
+    /// hand is already in the box, so it should not have to reach for a modifier. Hebrew and
+    /// English both, plus the flag itself for whoever types it out.</summary>
+    private static bool IsFastWord(string word)
+        => word.Equals("fast", StringComparison.OrdinalIgnoreCase)
+           || word.Equals("--fast", StringComparison.OrdinalIgnoreCase)
+           || word == "מהיר";
+
+    private void RunTypedTask(bool fastRequested)
     {
-        string number = RunTaskBox.Text.Trim();
-        if (number.Length == 0)
+        string typed = RunTaskBox.Text.Trim();
+        if (typed.Length == 0)
         {
             SetStatus("Type a task number first, e.g. 4.13.19");
             return;
+        }
+        // Strip a trailing "fast"/"מהיר" before resolving: the number has to reach FindByNumber
+        // exactly as the tasks file spells it.
+        string number = typed;
+        int space = typed.LastIndexOfAny(new[] { ' ', '\t' });
+        if (space > 0 && IsFastWord(typed[(space + 1)..]))
+        {
+            fastRequested = true;
+            number = typed[..space].TrimEnd();
         }
         if (Vm.TasksPanel.FindByNumber(number) is not { } task)
         {
             SetStatus($"No task {number} in the tasks file — it may be closed, or have no directory recorded");
             return;
         }
+        // A number that is not a coordinator's still runs — a stray Ctrl must not cost a launch —
+        // but it says so, because a modifier that quietly does nothing is worse than one that refuses.
+        bool fast = fastRequested && IsCoordinatorNumber(number);
         RunTaskBox.Clear();
-        HandleTaskActivate(task, RunTaskBox);
+        HandleTaskActivate(task, RunTaskBox, fast);
+        if (fastRequested && !fast)
+            SetStatus($"{number} is not a coordinator — opened normally; the fast form is a coordinator's only");
     }
 
     private void StartupMenuItem_Click(object sender, RoutedEventArgs e)
