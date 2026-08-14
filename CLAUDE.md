@@ -135,6 +135,14 @@ between them:
 2. **The transcript scanner** (every 10s) — a `tool_use` with no `tool_result`. The only
    thing that sees a call *finish*. Driven by the transcript's mtime, which stops growing
    while a permission dialog is open.
+3. **`background_tasks` in the `Stop` payload** (v0.9.38) — the live registry of what is
+   still running when a turn ends. Neither of the other two can see a background subagent:
+   its `Agent` call returns in ~3ms with `async_launched`, so the transcript holds a
+   completed call, and the `Stop` hook is genuine. A `done` carrying `--agents N` (N>0)
+   lands on `working` instead, because those agents wake the session themselves. Count the
+   snapshot, never a `SubagentStart`/`SubagentStop` tally — one background agent produced
+   four pairs of those in a controlled run. Details and the measurements:
+   [`hooks/README.md`](hooks/README.md).
 
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the

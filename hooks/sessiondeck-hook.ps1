@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.25  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.38  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -81,8 +81,18 @@ switch ($HookEvent) {
         if (-not $detail)             { $detail = 'Waiting for permission' }
         $cliArgs += @('--detail', $detail, '--permission-dialog')
     }
+    # A turn can end while the session is not free at all: subagents launched with
+    # run_in_background keep running, report back on their own and resume it. The Stop
+    # payload carries the live registry in background_tasks, so the count is a snapshot
+    # and not a start/stop tally (one background agent produced four SubagentStart /
+    # SubagentStop pairs in a controlled run - it stops and resumes whenever it waits).
+    # Only 'subagent' entries are counted: a background shell (a dev server, a long
+    # build) also sits in that list but never wakes anyone, and counting it would pin
+    # the card blue forever. Always sent, including 0, so the next turn clears it.
     'Stop' {
         $cliArgs = @('session', 'status', '--id', $sid, '--state', 'done')
+        $agents = @($payload.background_tasks | Where-Object { $_.type -eq 'subagent' })
+        $cliArgs += @('--agents', $agents.Count)
     }
     # The turn died on an API error. Until this event existed SessionDeck had no hook for
     # its 'error' state at all and the card just went quiet.

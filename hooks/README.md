@@ -8,7 +8,7 @@
 | `UserPromptSubmit` | `session status --state working` | steady blue | the **prompt** itself (`--detail`, trimmed to 400 chars) |
 | `Notification` | `session status --state waiting` | blinking orange | the waiting message (`--detail` — e.g. "needs your permission to use Bash") |
 | `PermissionRequest` | `session status --state waiting --permission-dialog` | blinking orange | the tool and its argument (`--detail` — e.g. `Write: C:\Windows\Temp\x.txt`) |
-| `Stop` | `session status --state done` | blinking purple → steady once clicked | |
+| `Stop` | `session status --state done` | blinking purple → steady once clicked | `--agents` — how many subagents the payload's `background_tasks` still lists as running (see below); a non-zero count lands on `working` instead |
 | `StopFailure` | `session status --state error` | red | the error message that killed the turn |
 | `PreToolUse` (AskUserQuestion / ExitPlanMode) | `session status --state waiting` | blinking orange | the question text / "Waiting for plan approval" — question forms are not permission requests, so they never raise `PermissionRequest` |
 | `PostToolUse` (same tools) | `session status --state working` | steady blue | the user answered — Claude is working again |
@@ -57,6 +57,54 @@ turn end, in exchange for a new subcommand and a JSON parser in the exe. Measure
 does not pay, which is why the bridge still looks like this. If the registered set ever grows to
 something that fires per tool call, this arithmetic changes and the subcommand becomes the
 obvious move.
+
+### Background subagents — the one thing neither the hooks nor the scanner used to see
+
+A session that dispatches subagents with `run_in_background` ends its turn and then sits
+there: the agents run, report back on their own and resume it. Until v0.9.38 the deck read
+that as the user's turn, because the `Stop` hook is genuine — the turn really did end. Every
+returning agent produced another `done`, so a wave of them blinked "your turn" repeatedly at
+a user with nothing to answer.
+
+**The transcript cannot help here.** A background `Agent` call returns in about 3ms with
+`{"status": "async_launched", "agentId": ...}`, so the transcript holds a completed tool call
+with its `tool_result` in place; the scanner has nothing pending to look at. (A *foreground*
+agent does leave a pending call, which is why `Agent` appears in the threshold table below —
+excluded from ageing, but visible.)
+
+**What does carry it is the `Stop` payload itself**, which the deck was already receiving and
+throwing away (measured 2026-08-14 against Claude Code 2.1.232):
+
+```json
+"background_tasks": [
+  {"id": "a70134...", "type": "subagent", "status": "running",
+   "description": "Delayed sleep test agent", "agent_type": "general-purpose"}
+]
+```
+
+The hook counts the `subagent` entries and passes `--agents <n>` on every `Stop`, zero
+included, so the next turn clears it. `SetSessionStatus` turns a `done` with `n > 0` into
+`working`, and the card shows a 🤖 chip so the blue is explained rather than mysterious.
+
+Three things learned the hard way, all worth keeping:
+
+- **Count the snapshot, never a start/stop tally.** `SubagentStart` and `SubagentStop` do
+  exist, both carrying `agent_id`, `agent_type` and the parent's `session_id` — but they are
+  not a matched pair. One background agent produced **four** Start/Stop pairs in a controlled
+  run: it stops and resumes every time it waits on something of its own. A running tally
+  would drift; `background_tasks` is a snapshot of the live registry and cannot.
+- **Only `subagent` counts.** The same list holds `type: "shell"` entries — a dev server, a
+  long build, anything started with `run_in_background`. Those never wake the session, so
+  counting them would pin a card blue forever with the user genuinely waiting.
+- **No new hook registration, and no new cost.** Everything above rides on the `Stop` hook
+  that was already registered. `SubagentStart` / `SubagentStop` would each add a PowerShell
+  start *per agent*, which on a wave of ten is ten of them, for information the snapshot
+  already delivers.
+
+Not covered, deliberately: after a deck restart the count is 0 until that session's next
+`Stop` (it isn't persisted — a stale count from before a crash would pin a card blue), and a
+`SessionStart` of any kind resets it, because whether the previous incarnation's agents are
+still alive is not knowable from a hook payload.
 
 ### Detecting "waiting" from the transcript — what the hooks alone can't give
 
