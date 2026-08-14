@@ -1315,7 +1315,8 @@ public partial class MainWindow : Window
 
     /// <summary>Extra hook-payload data attached to any session command (all optional).</summary>
     public sealed record HookInfo(string? Detail = null, string? Transcript = null, string? Source = null,
-                                  string? Mode = null, string? Reason = null, bool PermissionDialog = false)
+                                  string? Mode = null, string? Reason = null, bool PermissionDialog = false,
+                                  int? Agents = null)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1328,6 +1329,8 @@ public partial class MainWindow : Window
             fw = EnsureSessionHome(fw, fs, info.Transcript);
             fs.Closed = false;
             fs.Status = SessionStatus.Idle;
+            // Whatever agents the previous incarnation had are not knowable from here.
+            fs.BackgroundAgents = 0;
             fs.StartedAt = DateTime.Now;
             fs.EndedAt = null;
             if (!string.IsNullOrEmpty(title)) fs.CustomTitle = title;
@@ -1374,6 +1377,7 @@ public partial class MainWindow : Window
         if (info.Source != null) session.Source = info.Source;
         if (info.Mode != null) session.PermissionMode = info.Mode;
         if (info.Reason != null) session.EndReason = info.Reason;
+        if (info.Agents is int agents) session.BackgroundAgents = agents;
     }
 
     /// <summary>The workspace's transcripts folder, learned from any hook event that
@@ -1442,6 +1446,18 @@ public partial class MainWindow : Window
 
     public (string, bool) SetSessionStatus(string sessionId, SessionStatus status, string workspaceArg, HookInfo info)
     {
+        // A turn that ended while background subagents are still running is not the user's
+        // turn — they resume the session themselves when they report back, and a wave of
+        // them blinks "your turn" once per return at a user with nothing to answer
+        // (measured: five done↔working flips in two minutes off a single agent). The card
+        // says what is true instead: the session is working, just not by itself. The hook
+        // counts subagents only; a background shell never wakes anything. Ahead of the
+        // recreate branch on purpose — a session the deck has forgotten gets the same read.
+        if (status == SessionStatus.Done && info.Agents > 0)
+        {
+            status = SessionStatus.Working;
+            LogService.Info("status", $"session={sessionId} done→working ({info.Agents} background agents)");
+        }
         if (Vm.FindSession(sessionId) is not { } found)
         {
             // Self-healing (feedback 2026-07-19): the session may have been deleted with its

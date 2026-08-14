@@ -241,6 +241,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         {
             var lines = new List<string>();
             if (_detail.Length > 0) lines.Add(_detail);
+            if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
             // Date added 2026-08-11: a bare clock reads as "today" even when the event
             // was yesterday. Seconds dropped — the minute is the useful resolution here.
             lines.Add($"started: {StartedAt:HH:mm d'/'M}");
@@ -262,6 +263,37 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             RaiseVisuals();
         }
     }
+
+    private int _backgroundAgents;
+    /// <summary>Subagents still running in the background as of this session's last turn
+    /// end, read from the Stop hook's <c>background_tasks</c>. It is the only signal there
+    /// is: a background Agent call returns its id in milliseconds, so the transcript shows
+    /// a finished tool call and the scanner sees nothing to wait for. While it is non-zero
+    /// the card stays "working" instead of claiming the user's turn. Not persisted — after
+    /// a deck restart the session's next Stop refills it.</summary>
+    public int BackgroundAgents
+    {
+        get => _backgroundAgents;
+        set
+        {
+            if (_backgroundAgents == value) return;
+            _backgroundAgents = value;
+            Raise();
+            Raise(nameof(HasBackgroundAgents));
+            Raise(nameof(BackgroundAgentsText));
+            Raise(nameof(BackgroundAgentsTip));
+            Raise(nameof(TooltipText));
+        }
+    }
+
+    public bool HasBackgroundAgents => _backgroundAgents > 0;
+
+    /// <summary>The chip on the card: the icon alone for one agent, icon + count for more.</summary>
+    public string BackgroundAgentsText => _backgroundAgents > 1 ? $"🤖{_backgroundAgents}" : "🤖";
+
+    public string BackgroundAgentsTip => _backgroundAgents == 1
+        ? "1 subagent is still running — the session resumes on its own when it reports back"
+        : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
 
     private bool _acknowledged;
     public bool Acknowledged
