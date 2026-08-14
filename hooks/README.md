@@ -102,9 +102,46 @@ Three things learned the hard way, all worth keeping:
   already delivers.
 
 Not covered, deliberately: after a deck restart the count is 0 until that session's next
-`Stop` (it isn't persisted — a stale count from before a crash would pin a card blue), and a
-`SessionStart` of any kind resets it, because whether the previous incarnation's agents are
-still alive is not knowable from a hook payload.
+`Stop` (it isn't persisted — a stale count from before a crash would pin a card blue). A
+`SessionStart` with `source` `startup` or `clear` resets it; `resume` and `compact` keep it,
+because the same conversation is continuing (see the next section — this is the fix for a card
+that dropped to idle the moment you clicked it).
+
+### Agents that died with their session — the transcript is the only witness (v0.9.40)
+
+When a session's process exits while background subagents are still running, the next
+incarnation is told so, and nothing else is:
+
+```
+<task-notification><task-id>…</task-id><status>stopped</status>
+<summary>No completion record was found for 2 background agents from the previous session:
+"Re-measure tree 3 agenda delta" (a4bab…), "Measure git delivery gap across repos" (abd27…).
+…their transcripts are saved on disk…</summary></task-notification>
+```
+
+Measured 2026-08-14 (Claude Code 2.1.232), the hooks are blind to it: `SessionStart` fires
+about four seconds *before* the notification is written and carries nothing about it,
+`UserPromptSubmit` reports the user's own prompt rather than the notification, and by then
+`Stop`'s `background_tasks` is empty. So the scanner reads it, sets a ⚠ chip naming the lost
+agents, and turns the card `error` — nothing else on the deck can say that work was started
+and never finished. `waiting` and `he` outrank it: a live block on the user, and a deliberate
+close-out, both mean more than a post-mortem.
+
+Two guards, both paid for:
+
+- **Whose text is it.** The first cut matched any line containing the marker and lit up a
+  session that was merely *discussing* a lost agent — off its own tool output. The
+  notification is now identified structurally: a `user` entry with
+  `origin.kind == "task-notification"` whose content is a plain string starting with
+  `<task-notification>`. That also rejects the `queue-operation` twin of the same
+  notification, which carries its own timestamp and would fire a second time.
+- **How old is it.** The deck rescans every transcript on startup, so without a bound a
+  restart would light up every session that ever lost an agent. Notifications older than an
+  hour are ignored.
+
+The notification's own timestamp is the event's identity, so the 10-second scan reports it
+once. The mark clears when the session does something again (any hook-driven `working`) or on
+a `SessionStart` that resets the card.
 
 ### Detecting "waiting" from the transcript — what the hooks alone can't give
 

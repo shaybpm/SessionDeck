@@ -21,11 +21,25 @@ namespace SessionDeck.Services;
 /// "ai-title" at all gets labelled from a user prompt instead, which no single title field
 /// reproduces (issue 2026-07-20, second report). Matching against the whole candidate set
 /// covers every labelling rule Claude Code uses without having to know which one applied.</param>
+/// <param name="Lost">Set when the transcript's tail carries a task-notification reporting
+/// background agents with no completion record — the session's previous process died with
+/// them still running. No hook carries this: measured 2026-08-14, SessionStart fires seconds
+/// BEFORE the notification is written and carries nothing about it, UserPromptSubmit reports
+/// the user's own prompt rather than the notification, and by then Stop's background_tasks is
+/// empty. The transcript is the only witness.</param>
 public sealed record TranscriptInfo(
     string? TabTitle,
     string? AutoTitle,
     PendingCall? Pending = null,
-    IReadOnlyList<string>? LabelCandidates = null);
+    IReadOnlyList<string>? LabelCandidates = null,
+    LostAgents? Lost = null);
+
+/// <summary>Background agents that were running when their session's process exited.</summary>
+/// <param name="Count">How many were reported in the one notification.</param>
+/// <param name="Detail">Their descriptions, as the notification names them.</param>
+/// <param name="AtUtc">The notification's own timestamp — the identity of the event, so the
+/// same one is never reported twice by the 10-second scan.</param>
+public sealed record LostAgents(int Count, string Detail, DateTime AtUtc);
 
 /// <summary>A tool call with no tool_result yet — either Claude is blocked on the user,
 /// or the tool is simply still running. <see cref="IsAsk"/> separates the two.</summary>
@@ -70,6 +84,7 @@ public static class TranscriptReader
         try
         {
             string? customTitle = null, aiTitle = null, summary = null, firstUserText = null;
+            LostAgents? lost = null;
             var prompts = new List<string>();
             var tail = new Queue<string>(TailLines);
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -98,6 +113,8 @@ public static class TranscriptReader
                         if (prompts.Count > MaxLabelCandidates) prompts.RemoveAt(0);
                     }
                 }
+                else if (line.Contains(StoppedMarker))
+                    lost = ReadLostAgents(line) ?? lost;
                 else if (line.Contains("\"summary\""))
                     summary = TryGetString(line, "summary", "summary") ?? summary;
                 else if (firstUserText == null && line.Contains("\"user\""))
@@ -121,12 +138,71 @@ public static class TranscriptReader
                 if (autoTitle != null && !candidates.Contains(autoTitle)) candidates.Add(autoTitle);
             }
 
-            return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates);
+            return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates, lost);
         }
         catch
         {
             return new TranscriptInfo(null, null);
         }
+    }
+
+    /// <summary>The one string that identifies a lost-agent notification. Checked against the
+    /// raw line before any parsing, because every other line in the file has to pay for it.</summary>
+    private const string StoppedMarker = "<status>stopped</status>";
+
+    /// <summary>The agent names inside the notification's summary, e.g.
+    /// <c>... for 2 background agents from the previous session: "Re-measure tree 3 agenda
+    /// delta" (a4bab...), "Measure git delivery gap" (abd27...)</c>.</summary>
+    private static readonly Regex QuotedName = new("\"([^\"]{1,80})\"", RegexOptions.Compiled);
+
+    /// <summary>A task-notification saying background agents have no completion record: their
+    /// session's process exited while they were still running. One notification covers all of
+    /// them, so its own timestamp is the event's identity — the scan re-reads the same tail
+    /// every 10 seconds and must not report it again.</summary>
+    private static LostAgents? ReadLostAgents(string line)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            // Claude Code labels the injected message: origin.kind == "task-notification" on a
+            // user entry, with the XML as a plain string. Both halves are checked because
+            // WHOSE text this is decides everything — the first cut matched any line
+            // containing the marker and lit up a session that was merely DISCUSSING a lost
+            // agent, off its own tool output. Rejected by this: assistant prose (type
+            // assistant), tool results (content is an array), and the queue-operation twin of
+            // the same notification, which would otherwise fire a second time on its own
+            // timestamp.
+            if (!root.TryGetProperty("type", out var kind) || kind.GetString() != "user") return null;
+            if (root.TryGetProperty("origin", out var origin) &&
+                origin.TryGetProperty("kind", out var originKind) &&
+                originKind.GetString() != "task-notification")
+                return null;
+            if (!root.TryGetProperty("message", out var message) ||
+                !message.TryGetProperty("content", out var content) ||
+                content.ValueKind != JsonValueKind.String)
+                return null;
+            string text = content.GetString() ?? "";
+            if (!text.TrimStart().StartsWith("<task-notification>", StringComparison.Ordinal)) return null;
+            if (!text.Contains(StoppedMarker)) return null;   // the marker was elsewhere in the line
+            int count = 0;
+            for (int i = text.IndexOf("<task-id>", StringComparison.Ordinal); i >= 0;
+                 i = text.IndexOf("<task-id>", i + 1, StringComparison.Ordinal)) count++;
+            // The summary quotes each agent's description. Nothing quoted (a wording change
+            // upstream) still leaves a usable card - the count is the load-bearing half.
+            var names = new List<string>();
+            int summaryAt = text.IndexOf("<summary>", StringComparison.Ordinal);
+            if (summaryAt >= 0)
+                foreach (Match m in QuotedName.Matches(text[summaryAt..]))
+                    if (!names.Contains(m.Groups[1].Value)) names.Add(m.Groups[1].Value);
+            DateTime stamp = root.TryGetProperty("timestamp", out var ts) &&
+                             DateTime.TryParse(ts.GetString(), null,
+                                 System.Globalization.DateTimeStyles.AdjustToUniversal |
+                                 System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)
+                ? parsed : DateTime.UtcNow;
+            return new LostAgents(Math.Max(count, 1), string.Join(", ", names), stamp);
+        }
+        catch { return null; }
     }
 
     /// <summary>A tool_use with no matching tool_result. For AskUserQuestion/ExitPlanMode

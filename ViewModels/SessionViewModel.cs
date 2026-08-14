@@ -242,6 +242,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             var lines = new List<string>();
             if (_detail.Length > 0) lines.Add(_detail);
             if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
+            if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Date added 2026-08-11: a bare clock reads as "today" even when the event
             // was yesterday. Seconds dropped — the minute is the useful resolution here.
             lines.Add($"started: {StartedAt:HH:mm d'/'M}");
@@ -294,6 +295,61 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     public string BackgroundAgentsTip => _backgroundAgents == 1
         ? "1 subagent is still running — the session resumes on its own when it reports back"
         : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
+
+    private int _lostAgents;
+    private string _lostAgentsDetail = "";
+
+    /// <summary>Background agents that died with this session's previous process, read from
+    /// the task-notification in its transcript (no hook reports it). Cleared when the session
+    /// does something again — the mark is about the gap, not a permanent scar.</summary>
+    public int LostAgents => _lostAgents;
+
+    /// <summary>The notification's own timestamp, so the 10-second scan reports it once.
+    /// Runtime only.</summary>
+    public DateTime? LostAgentsAt { get; private set; }
+
+    public void SetLostAgents(int count, string detail, DateTime atUtc)
+    {
+        _lostAgents = count;
+        _lostAgentsDetail = detail;
+        LostAgentsAt = atUtc;
+        RaiseLostVisuals();
+    }
+
+    public void ClearLostAgents()
+    {
+        if (_lostAgents == 0 && LostAgentsAt == null) return;
+        _lostAgents = 0;
+        _lostAgentsDetail = "";
+        LostAgentsAt = null;
+        RaiseLostVisuals();
+    }
+
+    private void RaiseLostVisuals()
+    {
+        Raise(nameof(LostAgents));
+        Raise(nameof(HasLostAgents));
+        Raise(nameof(LostAgentsText));
+        Raise(nameof(LostAgentsTip));
+        Raise(nameof(TooltipText));
+    }
+
+    public bool HasLostAgents => _lostAgents > 0;
+
+    public string LostAgentsText => _lostAgents > 1 ? $"⚠{_lostAgents}" : "⚠";
+
+    public string LostAgentsTip
+    {
+        get
+        {
+            string head = _lostAgents == 1
+                ? "1 background agent was still running when this session's process exited"
+                : $"{_lostAgents} background agents were still running when this session's process exited";
+            string names = _lostAgentsDetail.Length > 0 ? Environment.NewLine + _lostAgentsDetail : "";
+            return head + names + Environment.NewLine +
+                   "Their transcripts are on disk — nothing was lost, but nothing finished either.";
+        }
+    }
 
     private bool _acknowledged;
     public bool Acknowledged

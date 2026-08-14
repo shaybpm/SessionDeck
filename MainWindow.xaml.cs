@@ -627,6 +627,7 @@ public partial class MainWindow : Window
                         retitled.Add(ws);
                     }
                     session.PendingCall = tInfo.Pending;
+                    if (ApplyLostAgents(session, tInfo.Lost)) changed = true;
                 }
                 // Evaluate right after a scan too, so a question goes orange at once
                 // instead of waiting for the next tick.
@@ -741,6 +742,32 @@ public partial class MainWindow : Window
             return true;
         }
         return false;
+    }
+
+    /// <summary>How stale a lost-agents notification may be and still raise the card. The
+    /// deck rescans every transcript on startup, so without a bound a restart would light up
+    /// every session that ever lost an agent. An hour keeps the case this was built for — the
+    /// agents died minutes ago and the user is looking at the deck now.</summary>
+    private static readonly TimeSpan LostAgentsFreshness = TimeSpan.FromHours(1);
+
+    /// <summary>Background agents that died with the session's previous process. The only
+    /// witness is the transcript (no hook carries it — measured 2026-08-14), so this runs off
+    /// the scan. Reported once per notification: its own timestamp is the identity.</summary>
+    private static bool ApplyLostAgents(SessionViewModel session, LostAgents? lost)
+    {
+        if (lost == null || session.Closed) return false;
+        if (session.LostAgentsAt == lost.AtUtc) return false;
+        if (DateTime.UtcNow - lost.AtUtc > LostAgentsFreshness) return false;
+        session.SetLostAgents(lost.Count, lost.Detail, lost.AtUtc);
+        LogService.Info("status",
+            $"session={session.SessionId} lost {lost.Count} background agent(s) (transcript)");
+        // `waiting` is a live block on the user and outranks a post-mortem; `he` is a
+        // deliberate close-out that only real activity may clear. Everything else goes red:
+        // work was started and never finished, and nothing else on the card can say so.
+        if (session.Status is SessionStatus.Waiting or SessionStatus.He) return true;
+        session.Status = SessionStatus.Error;
+        session.LastEventAt = DateTime.Now;
+        return true;
     }
 
     /// <summary>How fresh a transcript write must be to count as "Claude is doing
@@ -1328,9 +1355,27 @@ public partial class MainWindow : Window
             var (fw, fs) = found;
             fw = EnsureSessionHome(fw, fs, info.Transcript);
             fs.Closed = false;
-            fs.Status = SessionStatus.Idle;
-            // Whatever agents the previous incarnation had are not knowable from here.
-            fs.BackgroundAgents = 0;
+            // A SessionStart on a session the deck already knows is NOT always a fresh start,
+            // and treating it as one erased live state: clicking a card makes the deck send an
+            // open command, VSCode answers it with SessionStart source=resume, and the card
+            // dropped from "working, 1 agent out" to idle — so looking at a session destroyed
+            // the very information the user clicked to read (reported 14-08-2026, proven by a
+            // subagent transcript still being written minutes later).
+            //   resume / compact: the same conversation continues. Keep the status and the
+            //     agent count; the session never stopped.
+            //   startup / clear / anything else: genuinely new or wiped. Reset.
+            // `he` is the exception either way: a SessionStart clears it by documented rule
+            // (hooks/README.md), because the session is demonstrably back in use.
+            bool continues = info.Source is "resume" or "compact" && fs.Status != SessionStatus.He;
+            if (!continues)
+            {
+                fs.Status = SessionStatus.Idle;
+                // Whatever agents the previous incarnation had are not knowable from here. The
+                // lost-agents mark is cleared too and re-earned from the transcript: the
+                // notification about them is written a few seconds AFTER this hook.
+                fs.BackgroundAgents = 0;
+                fs.ClearLostAgents();
+            }
             fs.StartedAt = DateTime.Now;
             fs.EndedAt = null;
             if (!string.IsNullOrEmpty(title)) fs.CustomTitle = title;
@@ -1339,6 +1384,11 @@ public partial class MainWindow : Window
             RefreshPhantom(fs);
             fw.RefreshSessionVisibility();
             AfterSessionChange(fw);
+            // Logged because it was not: this path rewrote a card's status silently, so the
+            // damage above was invisible in the diagnostic log and had to be reconstructed
+            // from the config file and two transcripts.
+            LogService.Info("status", $"session={sessionId} restarted (source={info.Source ?? "?"}) " +
+                                      $"{(continues ? "kept" : "reset to idle")}: {SessionStatusNames.ToName(fs.Status)}");
             return ($"session {sessionId} restarted in \"{fw.DisplayTitle}\"", true);
         }
 
@@ -1503,6 +1553,10 @@ public partial class MainWindow : Window
             else
                 return ($"session {sessionId} is closed — status not changed", false);
         }
+        // The session is doing something again, so the post-mortem has served its purpose.
+        // Not for the `working` this method synthesises out of a `done` — that one is a turn
+        // ENDING, and the mark has to outlive it to still be there when the user looks.
+        if (status == SessionStatus.Working && !agentsHeldTurn) session.ClearLostAgents();
         var prev = session.Status;
         // `he` is the one status a hook may not overwrite with a quieter one. It is set from
         // inside the last turn of the session, so the Stop hook that ends that very turn

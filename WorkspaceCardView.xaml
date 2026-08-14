@@ -255,6 +255,20 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
+                                    <!-- Agents that died with the session's previous process.
+                                         Nothing else on the card can say this. Hidden at zero. -->
+                                    <TextBlock Text="{Binding LostAgentsText}" Foreground="#FFE06C6C" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
+                                               ToolTip="{Binding LostAgentsTip}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasLostAgents}" Value="False">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <!-- Background subagents: why a card can stay "working" with
                                          nothing visibly happening. Hidden at zero. -->
                                     <TextBlock Text="{Binding BackgroundAgentsText}" Foreground="#FFBBBBBB" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
