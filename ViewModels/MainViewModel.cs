@@ -51,6 +51,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { if (_activeOnly != value) { _activeOnly = value; Raise(); } }
     }
 
+    private bool _showHeadless;
+    /// <summary>Show the sessions nobody opened by hand — scheduled tasks and runners firing
+    /// `claude --print` (Shay, 14-08-2026). Off by default: they fire the same hooks as a real
+    /// session, so without this every timer on the machine earns a card. Unlike ActiveOnly
+    /// this one hides SESSIONS, and a card left with none of its own stops counting as open.</summary>
+    public bool ShowHeadless
+    {
+        get => _showHeadless;
+        set { if (_showHeadless != value) { _showHeadless = value; Raise(); } }
+    }
+
     /// <summary>Order of the cards below the live ones (feature 09-08-2026).</summary>
     public DeckSort Sort { get; set; } = DeckSort.Alphabetical;
 

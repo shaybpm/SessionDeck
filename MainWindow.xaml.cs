@@ -139,6 +139,7 @@ public partial class MainWindow : Window
         Vm.PermissionWaitToolSeconds = new Dictionary<string, int>(config.PermissionWaitToolSeconds, StringComparer.Ordinal);
         Vm.ShowHidden = config.ShowHidden;
         Vm.ActiveOnly = config.ActiveSessionsOnly;
+        Vm.ShowHeadless = config.ShowHeadlessSessions;
         if (ModeNames.TryParseDeckSort(config.DeckSort, out var deckSort)) Vm.Sort = deckSort;
         // A config written before this field existed deserializes to the property default,
         // but a hand-edited 0 would clamp to the minimum and look like a shrunk panel with
@@ -184,6 +185,7 @@ public partial class MainWindow : Window
                     TranscriptPath = sc.TranscriptPath,
                     Source = sc.Source,
                     PermissionMode = sc.PermissionMode,
+                    Entrypoint = sc.Entrypoint,
                     EndReason = sc.EndReason,
                     LastEventAt = sc.LastEventAt,
                     AutoTitle = sc.AutoTitle,
@@ -298,6 +300,7 @@ public partial class MainWindow : Window
             PermissionWaitToolSeconds = new Dictionary<string, int>(Vm.PermissionWaitToolSeconds),
             ShowHidden = Vm.ShowHidden,
             ActiveSessionsOnly = Vm.ActiveOnly,
+            ShowHeadlessSessions = Vm.ShowHeadless,
             DeckSort = ModeNames.ToName(Vm.Sort),
             TaskFontScale = Vm.TasksPanel.FontScale,
             AlwaysOnTop = Vm.AlwaysOnTop,
@@ -347,6 +350,7 @@ public partial class MainWindow : Window
                     TranscriptPath = s.TranscriptPath,
                     Source = s.Source,
                     PermissionMode = s.PermissionMode,
+                    Entrypoint = s.Entrypoint,
                     EndReason = s.EndReason,
                     LastEventAt = s.LastEventAt,
                     AutoTitle = s.AutoTitle,
@@ -1033,6 +1037,15 @@ public partial class MainWindow : Window
         // something, and a filter that quietly hides the hit is worse than no filter.
         bool openOnly = Vm.ActiveOnly && !searching;
         foreach (var ws in Vm.Workspaces)
+        {
+            // Push the global headless setting down first: the workspace counts its own
+            // sessions, and a card whose only sessions just became hidden has to stop
+            // reporting itself as open in this same pass — IsActive is read three lines down.
+            if (ws.ShowHeadless != Vm.ShowHeadless)
+            {
+                ws.ShowHeadless = Vm.ShowHeadless;
+                ws.RefreshSessionVisibility();
+            }
             ws.VisibleInDeck = (!ws.Hidden || Vm.ShowHidden)
                 && (!searching || ws.SelfMatchesSearch || ws.Sessions.Any(SessionMatchesSearch))
                 // The filter hides CARDS, never sessions. A card is kept when it is open right
@@ -1042,6 +1055,7 @@ public partial class MainWindow : Window
                 // `done` sessions, which are the ones that finished answering and are waiting to
                 // be read. Shay had 12 open sessions across 5 windows and saw 4 (08-08-2026).
                 && (!openOnly || ws.Expanded || ws.IsActive);
+        }
         UpdateEmptyHint();
         RefreshBlinkAndSummary();   // hidden workspaces don't count in the summary dots
     }
@@ -1343,7 +1357,7 @@ public partial class MainWindow : Window
     /// <summary>Extra hook-payload data attached to any session command (all optional).</summary>
     public sealed record HookInfo(string? Detail = null, string? Transcript = null, string? Source = null,
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
-                                  int? Agents = null)
+                                  int? Agents = null, string? Entrypoint = null)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1428,6 +1442,7 @@ public partial class MainWindow : Window
         if (info.Mode != null) session.PermissionMode = info.Mode;
         if (info.Reason != null) session.EndReason = info.Reason;
         if (info.Agents is int agents) session.BackgroundAgents = agents;
+        if (info.Entrypoint != null) session.Entrypoint = info.Entrypoint;
     }
 
     /// <summary>The workspace's transcripts folder, learned from any hook event that
@@ -2188,6 +2203,7 @@ public partial class MainWindow : Window
         MaximizeSessionMenuItem.IsChecked = Vm.OpenSessionMaximized;
         NotificationsMenuItem.IsChecked = Vm.WindowsNotifications;
         TasksStripMenuItem.IsChecked = Vm.ShowTasksStrip;
+        HeadlessSessionsMenuItem.IsChecked = Vm.ShowHeadless;
         ShowHiddenToggle.IsChecked = Vm.ShowHidden;
         ActiveOnlyToggle.IsChecked = Vm.ActiveOnly;
         PinTopToggle.IsChecked = Vm.AlwaysOnTop;
@@ -2396,6 +2412,18 @@ public partial class MainWindow : Window
     private void TasksStripMenuItem_Click(object sender, RoutedEventArgs e)
     {
         Vm.ShowTasksStrip = TasksStripMenuItem.IsChecked;
+        QueueSave();
+    }
+
+    private void HeadlessSessionsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Vm.ShowHeadless = HeadlessSessionsMenuItem.IsChecked;
+        // ApplyDeckVisibility pushes the flag into every workspace and re-filters their
+        // sessions; the sort then follows, because a card that just stopped counting as
+        // open must also leave the active block at the top.
+        ApplyDeckVisibility();
+        SortWorkspaces();
+        SetStatus(Vm.ShowHeadless ? "Showing headless sessions too" : "Hiding headless sessions");
         QueueSave();
     }
 

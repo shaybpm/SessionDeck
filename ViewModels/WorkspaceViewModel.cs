@@ -246,8 +246,29 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
         set { if (_tasksExpanded != value) { _tasksExpanded = value; Raise(); } }
     }
 
+    private bool _showHeadless;
+    /// <summary>Mirror of the global "show headless sessions" setting, pushed down by the
+    /// controller so the counting properties below can see it. Runtime only.</summary>
+    public bool ShowHeadless
+    {
+        get => _showHeadless;
+        set
+        {
+            if (_showHeadless == value) return;
+            _showHeadless = value;
+            Raise(nameof(HasOpenSessions));
+            Raise(nameof(IsActive));
+        }
+    }
+
+    /// <summary>A session the deck is currently willing to show at all. Headless runs are
+    /// filtered here rather than only in the view, so a card left with nothing but scheduled
+    /// -task sessions stops counting as open and drops out under "Open only" — otherwise
+    /// hiding the sessions would leave an empty card behind, which is worse than the noise.</summary>
+    private bool Countable(SessionViewModel s) => !s.Phantom && (_showHeadless || !s.IsHeadless);
+
     /// <summary>Phantom sessions don't count — they must not float the workspace up.</summary>
-    public bool HasOpenSessions => Sessions.Any(s => !s.Closed && !s.Phantom);
+    public bool HasOpenSessions => Sessions.Any(s => !s.Closed && Countable(s));
 
     /// <summary>Active = bound window or a live session; actives sort to the top.</summary>
     public bool IsActive => _state == BindState.Connected || HasOpenSessions;
@@ -264,9 +285,12 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     {
         foreach (var s in Sessions)
         {
-            bool normal = (!s.Closed || _expanded) && !s.Phantom;
+            bool normal = (!s.Closed || _expanded) && Countable(s);
             // A matching session is surfaced even if closed; a matching workspace keeps
             // its normal view; otherwise the session is filtered out.
+            // A search also overrides the headless filter, for the same reason "Open only"
+            // stands down while searching: a query is an explicit request to find something,
+            // and a filter that quietly hides the hit is worse than no filter.
             s.Visible = SearchPredicate == null ? normal
                 : !s.Phantom && (SearchPredicate(s) || (SelfMatchesSearch && normal));
         }

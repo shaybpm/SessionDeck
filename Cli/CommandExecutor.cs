@@ -17,7 +17,7 @@ public sealed class CommandExecutor
     {
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
-        "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents",
+        "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
         "prompt", "page",
     };
 
@@ -477,7 +477,8 @@ public sealed class CommandExecutor
         Mode: a.Options.GetValueOrDefault("mode"),
         Reason: a.Options.GetValueOrDefault("reason"),
         PermissionDialog: a.Flags.Contains("permission-dialog"),
-        Agents: int.TryParse(a.Options.GetValueOrDefault("agents"), out int agents) ? agents : null);
+        Agents: int.TryParse(a.Options.GetValueOrDefault("agents"), out int agents) ? agents : null,
+        Entrypoint: a.Options.GetValueOrDefault("entrypoint"));
 
     private (WorkspaceViewModel?, string?) ResolveTarget(ParsedArgs a)
     {

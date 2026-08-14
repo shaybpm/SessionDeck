@@ -68,6 +68,9 @@
                                 <MenuItem x:Name="NotificationsMenuItem" Header="Windows notifications"
                                           IsCheckable="True" Click="NotificationsMenuItem_Click"
                                           ToolTip="When on: a session that needs attention raises a Windows notification, a colored dot on the taskbar icon and a single flash.&#10;Active only while both 📌 and the Zone are off — in any other state the deck is visible anyway, and the card blink is enough.&#10;Even then, no notification is shown while the deck has focus."/>
+                                <MenuItem x:Name="HeadlessSessionsMenuItem" Header="Show headless sessions"
+                                          IsCheckable="True" Click="HeadlessSessionsMenuItem_Click"
+                                          ToolTip="Sessions nobody opened by hand: scheduled tasks and runners that launch `claude --print`.&#10;They fire exactly the same hooks as a real session, so without this every timer on the machine earns a card.&#10;Off by default. A card left with none of its own sessions drops off the deck, and a search still finds them."/>
                                 <Separator/>
                                 <MenuItem x:Name="TasksStripMenuItem" Header="Tasks strip on the deck"
                                           IsCheckable="True" Click="TasksStripMenuItem_Click"
