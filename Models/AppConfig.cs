@@ -204,6 +204,10 @@ public class SessionConfig
     public string? TranscriptPath { get; set; }
     public string? Source { get; set; }              // SessionStart source: startup|resume|clear|compact
     public string? PermissionMode { get; set; }
+    /// <summary>CLAUDE_CODE_ENTRYPOINT as the hook saw it: claude-vscode for a session in the
+    /// IDE, sdk-cli for a headless `claude --print` run. Persisted so a restart doesn't
+    /// un-hide every automated session until its next hook event.</summary>
+    public string? Entrypoint { get; set; }
     public string? EndReason { get; set; }
     public DateTime? LastEventAt { get; set; }
     public string? AutoTitle { get; set; }           // derived from the transcript (stage D)
@@ -272,6 +276,11 @@ public class AppConfig
     /// workspace cards left with none (feature 2026-08-08). Expanding a card shows all of it
     /// regardless, and a search switches the filter off for its duration.</summary>
     public bool ActiveSessionsOnly { get; set; }
+    /// <summary>Show the sessions nobody opened by hand: scheduled tasks and runners firing
+    /// `claude --print`, which produce hooks indistinguishable from a real session and so
+    /// earn a card of their own (Shay, 14-08-2026). Default false — an existing config with
+    /// no such key deserializes to false, which is the wanted state, so no migration.</summary>
+    public bool ShowHeadlessSessions { get; set; }
     /// <summary>Card order: "abc" (default — what the deck always did), "recent" or
     /// "frequency". Default stays A→Z so an upgrade never silently rearranges the deck.</summary>
     public string DeckSort { get; set; } = "abc";

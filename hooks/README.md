@@ -16,7 +16,40 @@
 | `ElicitationResult` | `session status --state working` | steady blue | the user answered the MCP server |
 | `SessionEnd` | `session end` | the card closes | `reason` (clear/logout/prompt_input_exit/other) |
 
-Every event also forwards, when present: `transcript_path` and `permission_mode`.
+Every event also forwards, when present: `transcript_path`, `permission_mode`, and
+`--entrypoint` (see below).
+
+### Telling a headless session apart (v0.9.41)
+
+A scheduled task or a runner firing `claude --print` produces hooks that are
+**indistinguishable** from a session opened in the IDE, so each one earns a card of its own.
+On this machine that meant cards for `shimi-agent` (four timers, one every two minutes),
+`system32` (scheduled tasks that never set a working directory, so Windows hands them
+`C:\WINDOWS\system32`), and a long tail of `scratchpad` / `tool-results` / `memory` folders
+that some background run happened to stand in.
+
+The discriminator is `CLAUDE_CODE_ENTRYPOINT`: `claude-vscode` for a session in the IDE,
+`sdk-cli` for a headless run. It is **not in the hook payload** — measured 14-08-2026 by
+dumping the raw stdin of `SessionStart`, `UserPromptSubmit`, `Stop` and `SessionEnd`, none of
+which carry it — so the bridge reads it off its own environment, which Claude Code sets on the
+process it spawns, and sends it as `--entrypoint` on every event rather than only on
+`SessionStart`, so a session that predates this version is classified on its next event.
+
+Two things worth knowing before touching this:
+
+- **The variable is inherited.** A `claude --print` launched from *inside* an IDE session
+  reports `claude-vscode` and reads as interactive. That is the harmless direction and it is
+  also right in spirit — that run belongs to a session the user opened. A run from Task
+  Scheduler has no such parent and correctly reports `sdk-cli`.
+- **`SessionViewModel.IsHeadless` is a blacklist of the `sdk*` entrypoints, deliberately, not
+  a whitelist of the interactive ones.** An unknown entrypoint treated as interactive shows a
+  card the user may not want, which is only today's behaviour; treated as headless it would
+  silently swallow a session he is waiting on. Precision over coverage.
+
+The setting is **Settings ⚙ → "Show headless sessions"**, off by default (`ShowHeadlessSessions`
+in the config). When off, the sessions are hidden and a card left with none of its own stops
+counting as open, so it drops off the deck under "Open only" instead of lingering empty. A
+search overrides the filter, for the same reason "Open only" stands down while searching.
 
 Of the **31** hook events Claude Code exposes (the authoritative list is the JSON schema of `settings.json` itself), SessionDeck registers these 11. The rest are irrelevant to session state: they either don't change it (`InstructionsLoaded`, `MessageDisplay`, `FileChanged`, `ConfigChange`), are already covered indirectly (`PreCompact`/`PostCompact` — `SessionStart` arrives with `source: compact`), or belong to flows not used here (`WorktreeCreate`, `TeammateIdle`, `TaskCreated`).
 

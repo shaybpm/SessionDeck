@@ -215,6 +215,30 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         set { if (_permissionMode != value) { _permissionMode = value; Raise(); } }
     }
 
+    private string? _entrypoint;
+    /// <summary>CLAUDE_CODE_ENTRYPOINT, forwarded by the hook. Not in the hook payload —
+    /// the hook reads it off its own environment (see hooks/README.md).</summary>
+    public string? Entrypoint
+    {
+        get => _entrypoint;
+        set { if (_entrypoint != value) { _entrypoint = value; Raise(); Raise(nameof(IsHeadless)); } }
+    }
+
+    /// <summary>Nobody opened this session by hand: a scheduled task or a runner fired
+    /// `claude --print`, and its hooks are indistinguishable from a real session's.
+    ///
+    /// Deliberately a blacklist of the SDK entrypoints (`sdk-cli`, `sdk-ts`, `sdk-py`) rather
+    /// than a whitelist of the interactive ones. The two failure directions are not equal:
+    /// an unknown entrypoint treated as interactive shows a card the user may not want, which
+    /// is merely today's behaviour, while an unknown entrypoint treated as headless would
+    /// silently swallow a session he is waiting on. Precision over coverage.
+    ///
+    /// Known limit: the variable is inherited, so a `claude --print` launched from inside an
+    /// IDE session reports claude-vscode and reads as interactive. That is the harmless
+    /// direction, and it is also correct in spirit — that run belongs to a session he opened.</summary>
+    public bool IsHeadless =>
+        _entrypoint != null && _entrypoint.StartsWith("sdk", StringComparison.OrdinalIgnoreCase);
+
     private string? _endReason;
     public string? EndReason
     {

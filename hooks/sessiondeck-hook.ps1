@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.40  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.41  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -142,6 +142,13 @@ if (-not $cliArgs) { exit 0 }
 if ($payload.cwd -and $HookEvent -ne 'SessionStart') { $cliArgs += @('--workspace', $payload.cwd) }
 if ($payload.transcript_path)  { $cliArgs += @('--transcript', $payload.transcript_path) }
 if ($payload.permission_mode)  { $cliArgs += @('--mode', $payload.permission_mode) }
+# Who started this session: claude-vscode for the IDE, sdk-cli for a headless
+# `claude --print` run (a scheduled task, a runner). It is NOT in the hook payload — measured
+# 14-08-2026 across SessionStart/UserPromptSubmit/Stop/SessionEnd — so it is read off the
+# hook's own environment, which Claude Code sets on the process it spawns. Sent on every
+# event, not only SessionStart, so a session that predates this version gets classified on
+# its next one instead of staying unknown until it restarts.
+if ($env:CLAUDE_CODE_ENTRYPOINT) { $cliArgs += @('--entrypoint', $env:CLAUDE_CODE_ENTRYPOINT) }
 
 & $exe @cliArgs | Out-Null
 exit 0
