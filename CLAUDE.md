@@ -141,8 +141,16 @@ between them:
    completed call, and the `Stop` hook is genuine. A `done` carrying `--agents N` (N>0)
    lands on `working` instead, because those agents wake the session themselves. Count the
    snapshot, never a `SubagentStart`/`SubagentStop` tally — one background agent produced
-   four pairs of those in a controlled run. Details and the measurements:
-   [`hooks/README.md`](hooks/README.md).
+   four pairs of those in a controlled run. The same scan (v0.9.40) also reads the
+   `<status>stopped</status>` task-notification — agents that died with the session's previous
+   process, which no hook reports either — and marks the card `error` with a ⚠ chip. Details
+   and the measurements: [`hooks/README.md`](hooks/README.md).
+
+**A `SessionStart` is not always a fresh start.** Clicking a card makes the deck send an open
+command, VSCode answers with `SessionStart source=resume`, and `StartSession` used to reset any
+known session to `idle` silently — so looking at a session destroyed the state you clicked to
+read. Since v0.9.40 `resume` and `compact` keep the status and the agent count; only `startup`
+and `clear` reset. That path now logs what it did, which it never used to.
 
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
