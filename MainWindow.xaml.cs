@@ -1453,7 +1453,8 @@ public partial class MainWindow : Window
         // says what is true instead: the session is working, just not by itself. The hook
         // counts subagents only; a background shell never wakes anything. Ahead of the
         // recreate branch on purpose — a session the deck has forgotten gets the same read.
-        if (status == SessionStatus.Done && info.Agents > 0)
+        bool agentsHeldTurn = status == SessionStatus.Done && info.Agents > 0;
+        if (agentsHeldTurn)
         {
             status = SessionStatus.Working;
             LogService.Info("status", $"session={sessionId} done→working ({info.Agents} background agents)");
@@ -1508,7 +1509,13 @@ public partial class MainWindow : Window
         // arrives right behind it and would put the card back to `done` a second later.
         // Real activity (working / waiting / error) does clear it — the session came back
         // to life, and the card has to say so.
-        bool keepHe = prev == SessionStatus.He && status is SessionStatus.Done or SessionStatus.Idle;
+        // A `working` this method produced itself out of a `done` is still that same Stop
+        // hook, and has to be held off `he` exactly like the `done` it came from — otherwise
+        // a session closed out while one of its agents is still in flight loses its green
+        // mark to the very Stop that follows the `he` command, which is the bug keepHe was
+        // written for. Real activity from a hook (a prompt, a wait, an error) still clears it.
+        bool keepHe = prev == SessionStatus.He &&
+                      (status is SessionStatus.Done or SessionStatus.Idle || agentsHeldTurn);
         if (!keepHe) session.Status = status;
         if (keepHe)
             LogService.Info("status", $"session={sessionId} kept he (ignored →{SessionStatusNames.ToName(status)})");
