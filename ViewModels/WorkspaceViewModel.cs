@@ -285,7 +285,10 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     {
         foreach (var s in Sessions)
         {
-            bool normal = (!s.Closed || _expanded) && Countable(s);
+            // A closed session whose VSCode tab is still open stays in the normal view: the
+            // tab is visible to the user either way, and a card that says the session ended
+            // is the only thing that tells him so (see MainWindow.RefreshEndedTabs).
+            bool normal = (!s.Closed || _expanded || s.EndedTabOpen) && Countable(s);
             // A matching session is surfaced even if closed; a matching workspace keeps
             // its normal view; otherwise the session is filtered out.
             // A search also overrides the headless filter, for the same reason "Open only"
