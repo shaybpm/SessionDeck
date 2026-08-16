@@ -272,6 +272,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             lines.Add($"started: {StartedAt:HH:mm d'/'M}");
             if (LastEventAt is { } le) lines.Add($"last event: {le:HH:mm d'/'M}");
             if (EndedAt is { } ea) lines.Add($"ended: {ea:HH:mm d'/'M}" + (_endReason != null ? $" ({_endReason})" : ""));
+            if (_endedTabOpen) lines.Add("its VSCode tab is still open — nothing is running behind it");
             return string.Join(Environment.NewLine, lines);
         }
     }
@@ -389,6 +390,24 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         set { if (_closed != value) { _closed = value; RaiseVisuals(); } }
     }
 
+    private bool _endedTabOpen;
+    /// <summary>This session is closed, VSCode still shows a tab that answers to it, and no
+    /// live session does. The card stays in the normal view saying exactly that — see
+    /// MainWindow.RefreshEndedTabs for why silence was the worse answer. Runtime only,
+    /// re-derived on every sync.</summary>
+    public bool EndedTabOpen
+    {
+        get => _endedTabOpen;
+        set
+        {
+            if (_endedTabOpen == value) return;
+            _endedTabOpen = value;
+            Raise();
+            Raise(nameof(StatusDisplay));
+            Raise(nameof(TooltipText));
+        }
+    }
+
     public DateTime StartedAt { get; set; }
     public DateTime? EndedAt { get; set; }
 
@@ -403,8 +422,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// <summary>The protocol name — what the CLI prints and what a script may match on.</summary>
     public string StatusText => Closed ? ClosedLabel : SessionStatusNames.ToName(_status);
 
-    /// <summary>What the card shows. Same states, friendlier words; see ToDisplay.</summary>
-    public string StatusDisplay => Closed ? ClosedLabel : SessionStatusNames.ToDisplay(_status);
+    /// <summary>What the card shows. Same states, friendlier words; see ToDisplay.
+    /// "closed (other)" is the protocol wording and answers the wrong question for a card
+    /// left standing only because its tab is still open — there, say what the user needs to
+    /// decide: nothing is running behind that tab.</summary>
+    public string StatusDisplay =>
+        Closed ? (EndedTabOpen ? "ended · tab open" : ClosedLabel)
+               : SessionStatusNames.ToDisplay(_status);
 
     private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");
 

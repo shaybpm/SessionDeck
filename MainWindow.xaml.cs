@@ -1894,6 +1894,8 @@ public partial class MainWindow : Window
             if (matched != null) s.MatchedTabLabel = matched;
         }
 
+        if (RefreshEndedTabs(ws)) ws.RefreshSessionVisibility();
+
         // Auto-acknowledge the session whose tab the user is looking at.
         if (ActiveTabSession(ws) is not { } target || target.Acknowledged) return false;
         string? active = ws.ActiveClaudeTabLabel;
@@ -1901,6 +1903,42 @@ public partial class MainWindow : Window
                                $" match=\"{(active != null ? MatchTabLabel(active, target) : null)}\"");
         target.Acknowledged = true;
         return true;
+    }
+
+    /// <summary>Mark the closed session behind a Claude tab that is still open, so the card
+    /// says "the tab is a leftover" instead of showing nothing at all.
+    ///
+    /// Nothing at all is genuinely ambiguous: it reads the same whether the session ended or
+    /// the deck failed to detect a live one, and Shay hit both on the same evening — the
+    /// orphan-sweep false close on ws shimi-agent, and this, ws bpm-emailagent-mcp, where
+    /// Claude Code really did send a SessionEnd six seconds after the answer while the tab
+    /// stayed open (16-08-2026). The badge counted the tab either way, which is what made the
+    /// card unreadable.
+    ///
+    /// One card per tab, the newest match only: every run of the same slash command shares a
+    /// label, and that workspace holds fifteen closed sessions all called
+    /// "/shimi-triage AAMk…" — showing them all would answer noise with more noise. A tab with
+    /// a LIVE session marks nothing: that session's own card already answers the question.</summary>
+    private static bool RefreshEndedTabs(WorkspaceViewModel ws)
+    {
+        var marked = new HashSet<SessionViewModel>();
+        foreach (var label in ws.ClaudeTabLabels)
+        {
+            if (ws.Sessions.Any(s => !s.Closed && !s.Phantom && TabLabelMatches(label, s))) continue;
+            var last = ws.Sessions.Where(s => s.Closed && TabLabelMatches(label, s))
+                                  .OrderByDescending(s => s.EndedAt ?? s.StartedAt)
+                                  .FirstOrDefault();
+            if (last != null) marked.Add(last);
+        }
+        bool changed = false;
+        foreach (var s in ws.Sessions)
+        {
+            bool want = marked.Contains(s);
+            if (s.EndedTabOpen == want) continue;
+            s.EndedTabOpen = want;
+            changed = true;
+        }
+        return changed;
     }
 
     private VscodeConnection? FindConnector(WorkspaceViewModel ws)
