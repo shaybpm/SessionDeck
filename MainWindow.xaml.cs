@@ -574,6 +574,11 @@ public partial class MainWindow : Window
                 s.OrphanSince ??= DateTime.Now;
                 if (DateTime.Now - s.OrphanSince < OrphanSessionTtl) continue;
                 if (DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
+                // Which of the two shapes fired, and against what — "ended (orphaned)" alone
+                // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
+                LogService.Info("status", $"session={s.SessionId} orphan close ws=\"{ws.DisplayTitle}\" " +
+                    (connected ? $"no tab matched tabs=[{string.Join(" | ", ws.ClaudeTabLabels)}]"
+                               : "no VSCode window"));
                 EndSession(s.SessionId, new HookInfo(Reason: "orphaned"));
             }
         }
