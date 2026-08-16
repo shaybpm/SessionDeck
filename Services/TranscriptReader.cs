@@ -86,6 +86,7 @@ public static class TranscriptReader
             string? customTitle = null, aiTitle = null, summary = null, firstUserText = null;
             LostAgents? lost = null;
             var prompts = new List<string>();
+            var commands = new List<string>();
             var tail = new Queue<string>(TailLines);
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
@@ -113,6 +114,17 @@ public static class TranscriptReader
                         if (prompts.Count > MaxLabelCandidates) prompts.RemoveAt(0);
                     }
                 }
+                else if (line.Contains(CommandNameOpen))
+                {
+                    // A slash command the user ran. VSCode labels the tab with it, and this
+                    // is the only place it survives — see TryReadCommandName.
+                    if (TryReadCommandName(line) is { } cmd)
+                    {
+                        commands.Remove(cmd);
+                        commands.Add(cmd);
+                        if (commands.Count > MaxLabelCandidates) commands.RemoveAt(0);
+                    }
+                }
                 else if (line.Contains(StoppedMarker))
                     lost = ReadLostAgents(line) ?? lost;
                 else if (line.Contains("\"summary\""))
@@ -135,6 +147,8 @@ public static class TranscriptReader
             {
                 for (int i = prompts.Count - 1; i >= 0; i--)
                     if (!candidates.Contains(prompts[i])) candidates.Add(prompts[i]);
+                for (int i = commands.Count - 1; i >= 0; i--)
+                    if (!candidates.Contains(commands[i])) candidates.Add(commands[i]);
                 if (autoTitle != null && !candidates.Contains(autoTitle)) candidates.Add(autoTitle);
             }
 
@@ -149,6 +163,54 @@ public static class TranscriptReader
     /// <summary>The one string that identifies a lost-agent notification. Checked against the
     /// raw line before any parsing, because every other line in the file has to pay for it.</summary>
     private const string StoppedMarker = "<status>stopped</status>";
+
+    /// <summary>Cheap pre-filter for a slash-command prompt, same idea as StoppedMarker.</summary>
+    private const string CommandNameOpen = "<command-name>";
+
+    private static readonly Regex CommandNameTag =
+        new("<command-name>\\s*(/?[^<\\s][^<]*)</command-name>", RegexOptions.Compiled);
+
+    /// <summary>The slash command a prompt invoked, e.g. <c>/shimi-queue</c> — a label
+    /// candidate, never a title.
+    ///
+    /// VSCode labels a titleless session's tab with its first prompt, and for a session
+    /// opened by a slash command that prompt IS the command name. Nothing else in the
+    /// transcript reproduces it: the matching "last-prompt" entry is written with no
+    /// lastPrompt field at all, and TryReadUserText rejects the wrapper on purpose (it is
+    /// markup, not a sentence). The tab therefore matched no candidate, and to the orphan
+    /// sweep "no tab answers to this session" means the host died — a live session Shay was
+    /// working in was closed after 15 idle minutes, and its card vanished from the deck
+    /// (issue 2026-08-16, ws shimi-agent, tab "/shimi-queue").
+    ///
+    /// Titles are unaffected: the card still displays the human prompt, and the command name
+    /// surfaces only if it is what the tab is actually showing.</summary>
+    private static string? TryReadCommandName(string line)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("type", out var type) || type.GetString() != "user") return null;
+            if (!root.TryGetProperty("message", out var message) ||
+                !message.TryGetProperty("content", out var content)) return null;
+            string? text = content.ValueKind switch
+            {
+                JsonValueKind.String => content.GetString(),
+                JsonValueKind.Array => content.EnumerateArray()
+                    .Where(e => e.TryGetProperty("type", out var t) && t.GetString() == "text")
+                    .Select(e => e.TryGetProperty("text", out var txt) ? txt.GetString() : null)
+                    .FirstOrDefault(t => t != null),
+                _ => null,
+            };
+            if (text == null) return null;
+            var m = CommandNameTag.Match(text);
+            return m.Success ? Shorten(m.Groups[1].Value) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     /// <summary>The agent names inside the notification's summary, e.g.
     /// <c>... for 2 background agents from the previous session: "Re-measure tree 3 agenda
