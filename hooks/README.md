@@ -72,6 +72,14 @@ file keeps refusing. The result is persisted (`PrintMode` in the config) because
 stop being a print run and a restart must not un-hide a wave that is still going, and it is ORed
 into `IsHeadless`, so the existing filter and its setting do the rest.
 
+The question is asked on `SessionStart`, `UserPromptSubmit` and `Stop` — the three events that can
+CREATE a session record. Not only the first, because a session whose `SessionStart` the deck
+missed (it was closed, restarting, or being upgraded mid-run) is recreated from whichever event
+arrives next, and a recreated print run that was never asked comes back as a session the user
+appears to have opened. Upgrading the deck while a wave was in flight is exactly how that was
+found, an hour after the fix went in (18-08-2026): two runs from before the install were still
+sitting on a card.
+
 The setting is **Settings ⚙ → "Show headless sessions"**, off by default (`ShowHeadlessSessions`
 in the config). When off, the sessions are hidden and a card left with none of its own stops
 counting as open, so it drops off the deck under "Open only" instead of lingering empty. A
