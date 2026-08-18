@@ -208,6 +208,10 @@ public class SessionConfig
     /// IDE, sdk-cli for a headless `claude --print` run. Persisted so a restart doesn't
     /// un-hide every automated session until its next hook event.</summary>
     public string? Entrypoint { get; set; }
+    /// <summary>The session is a `claude -p` run (hook-proven from its command line, not from
+    /// the inherited environment). Persisted for the same reason as Entrypoint: a restart must
+    /// not un-hide a wave of automated runs that is still going.</summary>
+    public bool PrintMode { get; set; }
     public string? EndReason { get; set; }
     public DateTime? LastEventAt { get; set; }
     public string? AutoTitle { get; set; }           // derived from the transcript (stage D)
