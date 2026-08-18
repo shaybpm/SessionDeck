@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.45  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.46  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -80,13 +80,9 @@ function Test-PrintModeRun {
 
 $cliArgs = $null
 switch ($HookEvent) {
-    # The print-mode question is asked once per session, never per event: the answer cannot change
-    # while the process lives, and SessionDeck persists it so a restart does not un-hide every
-    # automated run.
     'SessionStart' {
         $cliArgs = @('session', 'start', '--id', $sid, '--workspace', $payload.cwd)
         if ($payload.source)          { $cliArgs += @('--source', $payload.source) }
-        if (Test-PrintModeRun)        { $cliArgs += '--print-mode' }
     }
     'UserPromptSubmit' {
         $cliArgs = @('session', 'status', '--id', $sid, '--state', 'working')
@@ -175,6 +171,16 @@ switch ($HookEvent) {
     }
 }
 if (-not $cliArgs) { exit 0 }
+
+# Asked on the three events that can CREATE a session record, not on every one: SessionStart
+# normally, and UserPromptSubmit / Stop because a session whose SessionStart the deck missed (it
+# was closed, restarting, or being upgraded mid-run) is recreated from whichever event arrives
+# next - and a recreated print run that was never asked reappears as a session the user seems to
+# have opened, which is the whole bug. Everything else skips it, and a session opened in the IDE
+# answers in 10ms without ever reading a command line.
+if ($HookEvent -in @('SessionStart', 'UserPromptSubmit', 'Stop') -and (Test-PrintModeRun)) {
+    $cliArgs += '--print-mode'
+}
 
 # Common payload fields, forwarded on every event that carries them.
 # cwd goes on EVERY event so SessionDeck can recreate a session it no longer knows
