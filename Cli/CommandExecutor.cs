@@ -488,7 +488,8 @@ public sealed class CommandExecutor
         Reason: a.Options.GetValueOrDefault("reason"),
         PermissionDialog: a.Flags.Contains("permission-dialog"),
         Agents: int.TryParse(a.Options.GetValueOrDefault("agents"), out int agents) ? agents : null,
-        Entrypoint: a.Options.GetValueOrDefault("entrypoint"));
+        Entrypoint: a.Options.GetValueOrDefault("entrypoint"),
+        PrintMode: a.Flags.Contains("print-mode"));
 
     private (WorkspaceViewModel?, string?) ResolveTarget(ParsedArgs a)
     {

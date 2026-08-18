@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.44  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.45  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -55,11 +55,38 @@ function Get-PermissionSubject($p) {
     return $tool
 }
 
+# Is this session a `claude -p` run rather than one a human opened? CLAUDE_CODE_ENTRYPOINT is
+# INHERITED by everything a session spawns, so a wave of `claude -p` launched from inside a
+# session reports claude-vscode and reads as interactive - measured 18-08-2026, four wave runs
+# sat on a card as sessions the user could click, resume and be blinked at, none of which he
+# started. The command line is the only ground truth ("claude  -p --dangerously-skip-permissions"
+# against the IDE's "...native-binary\claude.exe --output-format stream-json ..."), but reading it
+# costs ~1.2s through CIM, which is three times the whole bridge's budget for one event.
+#
+# So the cheap half runs first: the exe PATH (10ms) of a session opened in the IDE is always the
+# extension's own binary. Only when that contradicts the environment - the entrypoint claims the
+# IDE while the binary is a standalone CLI - is the expensive half paid, and only that one session
+# pays it. A session the user really opened never reaches the CIM call, and nothing is ever hidden
+# on the cheap signal alone: precision over coverage (hooks/README.md).
+function Test-PrintModeRun {
+    if (-not $env:CLAUDE_PID) { return $false }
+    if ($env:CLAUDE_CODE_ENTRYPOINT -ne 'claude-vscode') { return $false }   # sdk-* classifies itself
+    try { $path = (Get-Process -Id $env:CLAUDE_PID -ErrorAction Stop).Path } catch { return $false }
+    if (-not $path) { return $false }
+    if ($path -match '(?i)extensions\\anthropic\.claude-code') { return $false }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($env:CLAUDE_PID)" -ErrorAction SilentlyContinue
+    return [bool]($proc.CommandLine -match '(^|\s)--?p(rint)?(\s|$)')
+}
+
 $cliArgs = $null
 switch ($HookEvent) {
+    # The print-mode question is asked once per session, never per event: the answer cannot change
+    # while the process lives, and SessionDeck persists it so a restart does not un-hide every
+    # automated run.
     'SessionStart' {
         $cliArgs = @('session', 'start', '--id', $sid, '--workspace', $payload.cwd)
         if ($payload.source)          { $cliArgs += @('--source', $payload.source) }
+        if (Test-PrintModeRun)        { $cliArgs += '--print-mode' }
     }
     'UserPromptSubmit' {
         $cliArgs = @('session', 'status', '--id', $sid, '--state', 'working')

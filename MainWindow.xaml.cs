@@ -186,6 +186,7 @@ public partial class MainWindow : Window
                     Source = sc.Source,
                     PermissionMode = sc.PermissionMode,
                     Entrypoint = sc.Entrypoint,
+                    PrintMode = sc.PrintMode,
                     EndReason = sc.EndReason,
                     LastEventAt = sc.LastEventAt,
                     AutoTitle = sc.AutoTitle,
@@ -351,6 +352,7 @@ public partial class MainWindow : Window
                     Source = s.Source,
                     PermissionMode = s.PermissionMode,
                     Entrypoint = s.Entrypoint,
+                    PrintMode = s.PrintMode,
                     EndReason = s.EndReason,
                     LastEventAt = s.LastEventAt,
                     AutoTitle = s.AutoTitle,
@@ -1362,7 +1364,8 @@ public partial class MainWindow : Window
     /// <summary>Extra hook-payload data attached to any session command (all optional).</summary>
     public sealed record HookInfo(string? Detail = null, string? Transcript = null, string? Source = null,
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
-                                  int? Agents = null, string? Entrypoint = null)
+                                  int? Agents = null, string? Entrypoint = null,
+                                  bool PrintMode = false)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1448,6 +1451,8 @@ public partial class MainWindow : Window
         if (info.Reason != null) session.EndReason = info.Reason;
         if (info.Agents is int agents) session.BackgroundAgents = agents;
         if (info.Entrypoint != null) session.Entrypoint = info.Entrypoint;
+        // One-way: proven once at SessionStart, and no later event can argue with it.
+        if (info.PrintMode) session.PrintMode = true;
     }
 
     /// <summary>The workspace's transcripts folder, learned from any hook event that

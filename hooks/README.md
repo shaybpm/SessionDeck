@@ -38,14 +38,39 @@ process it spawns, and sends it as `--entrypoint` on every event rather than onl
 
 Two things worth knowing before touching this:
 
-- **The variable is inherited.** A `claude --print` launched from *inside* an IDE session
-  reports `claude-vscode` and reads as interactive. That is the harmless direction and it is
-  also right in spirit — that run belongs to a session the user opened. A run from Task
-  Scheduler has no such parent and correctly reports `sdk-cli`.
+- **The variable is inherited, and that hole is NOT harmless (fixed in v0.9.45).** A
+  `claude --print` launched from *inside* an IDE session — or through a hidden `wscript` /
+  `powershell` launcher that a session started — reports `claude-vscode` and reads as
+  interactive. Measured 18-08-2026: a wave of four `claude -p` runs sat on a card as four
+  sessions the user could click, resume and be blinked at, none of which he opened. The old
+  text called this "right in spirit, the run belongs to a session he opened"; the card is the
+  wrong place to say so, because a session row offers to *resume* something nobody can talk to.
+  `--print-mode` now closes it from the other side (see below). A run from Task Scheduler with
+  a clean environment still reports `sdk-cli` and needs none of this.
 - **`SessionViewModel.IsHeadless` is a blacklist of the `sdk*` entrypoints, deliberately, not
   a whitelist of the interactive ones.** An unknown entrypoint treated as interactive shows a
   card the user may not want, which is only today's behaviour; treated as headless it would
   silently swallow a session he is waiting on. Precision over coverage.
+
+**`--print-mode`: the process, not the environment (v0.9.45).** The only thing that cannot be
+inherited is the claude process's own command line. A spawned run reads
+`claude  -p --dangerously-skip-permissions`; a session opened in the IDE reads
+`...\extensions\anthropic.claude-code-<v>\resources\native-binary\claude.exe --output-format
+stream-json ...`. Reading it costs ~1.2s through CIM — three times the whole bridge's budget for
+one event — so the hook asks in two stages, at `SessionStart` only:
+
+1. **Cheap (10ms), on every session:** `(Get-Process -Id $env:CLAUDE_PID).Path`. A session opened
+   in the IDE always runs the extension's own binary. If the path agrees with the environment,
+   the answer is no and nothing more is read.
+2. **Expensive (~1.2s), only on the contradiction:** the entrypoint claims the IDE while the
+   binary is a standalone CLI. Only then is the command line read, and only that one session pays
+   for it — a session the user really opened never reaches this call.
+
+Nothing is hidden on the cheap signal alone: a machine whose IDE binary lives somewhere
+unexpected would otherwise have its real sessions swallowed, which is the failure direction this
+file keeps refusing. The result is persisted (`PrintMode` in the config) because a process cannot
+stop being a print run and a restart must not un-hide a wave that is still going, and it is ORed
+into `IsHeadless`, so the existing filter and its setting do the rest.
 
 The setting is **Settings ⚙ → "Show headless sessions"**, off by default (`ShowHeadlessSessions`
 in the config). When off, the sessions are hidden and a card left with none of its own stops

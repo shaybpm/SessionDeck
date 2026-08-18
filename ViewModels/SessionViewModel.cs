@@ -233,11 +233,25 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// is merely today's behaviour, while an unknown entrypoint treated as headless would
     /// silently swallow a session he is waiting on. Precision over coverage.
     ///
-    /// Known limit: the variable is inherited, so a `claude --print` launched from inside an
-    /// IDE session reports claude-vscode and reads as interactive. That is the harmless
-    /// direction, and it is also correct in spirit — that run belongs to a session he opened.</summary>
+    /// The inherited-variable hole this used to call "harmless" was not: a `claude --print`
+    /// launched from inside an IDE session reports claude-vscode, and a wave of them lands on the
+    /// card as four sessions the user can click, resume and be blinked at, none of which he
+    /// started (reported 18-08-2026). <see cref="PrintMode"/> closes it from the other side —
+    /// the process's own command line — and is ORed in here.</summary>
     public bool IsHeadless =>
-        _entrypoint != null && _entrypoint.StartsWith("sdk", StringComparison.OrdinalIgnoreCase);
+        _printMode || (_entrypoint != null && _entrypoint.StartsWith("sdk", StringComparison.OrdinalIgnoreCase));
+
+    private bool _printMode;
+    /// <summary>This session is a `claude -p` run: nobody opened it, and there is nothing to
+    /// interact with. Proven by the hook from the claude process's own command line, not from
+    /// the environment, which a spawned run inherits from whoever spawned it. Sticky and
+    /// persisted: a process cannot stop being a print run, and a restart must not un-hide a
+    /// wave that is still going.</summary>
+    public bool PrintMode
+    {
+        get => _printMode;
+        set { if (_printMode != value) { _printMode = value; Raise(); Raise(nameof(IsHeadless)); } }
+    }
 
     private string? _endReason;
     public string? EndReason
