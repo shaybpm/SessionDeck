@@ -198,6 +198,49 @@ Not covered, deliberately: after a deck restart the count is 0 until that sessio
 because the same conversation is continuing (see the next section — this is the fix for a card
 that dropped to idle the moment you clicked it).
 
+### Wave runs — the other thing a session can have in the air (v0.9.47)
+
+A subagent shares its parent's `session_id`, so it never becomes a card of its own and the 🤖
+chip covers it. A **wave** is the opposite: a batch of `claude -p` runs, each a real session with
+its own id, launched by one session on its own behalf. They are hidden (see `--print-mode` above),
+but hiding them alone loses the fact the user actually wants — that this session has four runs out
+there working for it.
+
+Attribution cannot be derived, only stamped. Measured 18-08-2026 on a live wave:
+
+- **The process tree does not contain the launcher.** A wave is fired through
+  `wscript.exe run-ps-hidden.vbs build-wave-runner.ps1` so no window ever appears, and the shell
+  that started it has exited by the time anything inspects the chain. Walking a child's ancestry
+  reaches `claude -p ← cmd ← powershell ← cmd ← wscript` and stops: the launching session is not
+  there.
+- **The environment does not either.** `CLAUDE_CODE_SESSION_ID` reaches the child through
+  inheritance, but Claude Code overwrites it with the child's own id before any hook runs.
+
+So `build-wave-runner.ps1` (v1.6.0) copies the value it inherited into `SESSIONDECK_DISPATCHER`
+before it launches anything, every child inherits that, and the hook forwards it as `--dispatcher`
+on every event. The deck stores it (`DispatchedBy`, persisted — a restart mid-wave could never
+rebuild it) and **recounts** per launcher on every session event rather than keeping a tally, so a
+run that ends, is closed by hand or is swept as an orphan leaves the count on its own.
+
+**What counts is `working`, not "not closed"** — the difference between a number that empties
+itself and one that only grows. A `claude -p` run has exactly one turn, so `done` already means
+finished whether or not its `SessionEnd` ever arrived; of the two test runs launched while
+building this, one closed cleanly and the other was left sitting at `done` with no `SessionEnd`
+at all, which a "not closed" rule would have pinned on the launcher's card forever. A run woken by
+its own background agent is turned back to `working` by the `Stop` hook, so a busy one is never
+missed.
+
+Two deliberate asymmetries with the agent count:
+
+- **A wave does not hold the turn.** `background_tasks > 0` turns a `done` into `working` because
+  a subagent wakes its session when it reports back. A wave reports through the agenda instead;
+  the session's turn really has ended, and the card must keep saying so.
+- **Both share one chip.** From the deck's side it is the same question — is anything of mine
+  still running — so the count is the sum and the tooltip names each half.
+
+A run fired from a terminal or a scheduled task carries no stamp, stays hidden, and is counted on
+nobody's card, which is correct: no session is waiting on it.
+
 ### Agents that died with their session — the transcript is the only witness (v0.9.40)
 
 When a session's process exits while background subagents are still running, the next
