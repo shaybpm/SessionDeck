@@ -12,6 +12,7 @@
 | `StopFailure` | `session status --state error` | red | the error message that killed the turn |
 | `PreToolUse` (AskUserQuestion / ExitPlanMode) | `session status --state waiting` | blinking orange | the question text / "Waiting for plan approval" — question forms are not permission requests, so they never raise `PermissionRequest` |
 | `PostToolUse` (same tools) | `session status --state working` | steady blue | the user answered — Claude is working again |
+| `PostToolUse` (`Agent`) | `session agents --launched` | unchanged — the count only | one background subagent was just dispatched: +1 to the 🤖 chip, so it appears with the agents instead of at the end of the turn (see below) |
 | `Elicitation` | `session status --state waiting` | blinking orange | an input request from an MCP server — a real block that produces no `tool_use`, so the scanner is blind to it |
 | `ElicitationResult` | `session status --state working` | steady blue | the user answered the MCP server |
 | `SessionEnd` | `session end` | the card closes | `reason` (clear/logout/prompt_input_exit/other) |
@@ -91,6 +92,9 @@ does not pay, which is why the bridge still looks like this. If the registered s
 something that fires per tool call, this arithmetic changes and the subcommand becomes the
 obvious move.
 
+`Agent` joined the `PostToolUse` matcher in v0.9.44, which adds exactly one invocation per
+dispatched subagent — the cheapest possible leading edge, and still nowhere near per-tool-call.
+
 ### Background subagents — the one thing neither the hooks nor the scanner used to see
 
 A session that dispatches subagents with `run_in_background` ends its turn and then sits
@@ -118,6 +122,27 @@ throwing away (measured 2026-08-14 against Claude Code 2.1.232):
 The hook counts the `subagent` entries and passes `--agents <n>` on every `Stop`, zero
 included, so the next turn clears it. `SetSessionStatus` turns a `done` with `n > 0` into
 `working`, and the card shows a 🤖 chip so the blue is explained rather than mysterious.
+
+**The snapshot is late, though, and that reads as broken (v0.9.44).** It arrives only when the
+turn ENDS. A session that dispatches a wave, says so in the chat and then keeps working shows an
+empty card for the whole turn — reported 18-08-2026 as "it says it sent agents and the card shows
+nothing", and the log of that session says exactly why: three agents launched at 09:17:21, the
+chip appeared at 09:18:47 with the turn's `Stop`, and cleared at 09:22:46 when they were done. So
+`PostToolUse` on `Agent` now supplies the leading edge, one invocation per dispatched agent:
+
+- **Only an async launch counts.** `tool_response.status == "async_launched"` (with `isAsync`,
+  `agentId` and the description beside it) is the discriminator. A *foreground* agent's
+  `PostToolUse` fires when the agent has finished, and counting one would add an agent that no
+  longer exists.
+- **It is a tally, and tallies drift — this one is bounded.** It can only overcount, only until
+  the turn ends, and the `Stop` snapshot then overwrites it with the truth. An agent finishing
+  wakes the session, and that wake ends in exactly such a `Stop`.
+- **Status is deliberately untouched**, which is why this is its own CLI verb rather than a
+  `session status --state working`: the event fires mid-turn, and pushing a state from there would
+  clear `he` and the lost-agents mark off an ordinary tool call.
+- **`background_tasks` is on `Stop` and `SubagentStop` only** — measured 18-08-2026 against Claude
+  Code 2.1.233. Not on `PostToolUse`, `UserPromptSubmit`, `SubagentStart` or `Notification`, so
+  the leading edge cannot be a snapshot and there is nothing cheaper to read.
 
 Three things learned the hard way, all worth keeping:
 
@@ -264,7 +289,7 @@ The hooks are still installed and still useful: in the terminal they work fully,
       { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PreToolUse" } ] }
     ],
     "PostToolUse": [
-      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PostToolUse" } ] }
+      { "matcher": "AskUserQuestion|ExitPlanMode|Agent", "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" PostToolUse" } ] }
     ],
     "Elicitation": [
       { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\Eyal\\SessionDeck\\hooks\\sessiondeck-hook.ps1\" Elicitation" } ] }

@@ -185,6 +185,16 @@ public sealed class CommandExecutor
                     a.Options.GetValueOrDefault("workspace", ""), HookInfoFrom(a));
                 return ok ? Ok(msg) : Err(msg);
             }
+            // Status-neutral on purpose: this rides a PostToolUse, which fires in the middle
+            // of a turn, and pushing a state from there would fight the status machine — it
+            // would clear `he` and the lost-agents mark off a tool call. Only the count moves.
+            case "agents":
+            {
+                if (!a.Options.TryGetValue("id", out var id)) return Err("session agents requires --id <session_id>");
+                if (!a.Flags.Contains("launched")) return Err("session agents requires --launched");
+                var (msg, ok) = _window.NoteAgentLaunched(id, HookInfoFrom(a));
+                return ok ? Ok(msg) : Err(msg);
+            }
             case "end":
             {
                 if (!a.Options.TryGetValue("id", out var id)) return Err("session end requires --id <session_id>");

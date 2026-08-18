@@ -53,7 +53,7 @@ $missing = $events | Where-Object { -not $json.hooks.$_ }
 Assert (-not $missing) "all $($events.Count) events present"
 Assert ($json.hooks.PermissionRequest[0].PSObject.Properties.Name -notcontains 'matcher') "PermissionRequest fires for every tool"
 Assert ($json.hooks.PreToolUse[0].matcher -eq 'AskUserQuestion|ExitPlanMode') "PreToolUse matcher"
-Assert ($json.hooks.PostToolUse[0].matcher -eq 'AskUserQuestion|ExitPlanMode') "PostToolUse matcher"
+Assert ($json.hooks.PostToolUse[0].matcher -eq 'AskUserQuestion|ExitPlanMode|Agent') "PostToolUse matcher"
 Assert ($json.hooks.SessionStart[0].PSObject.Properties.Name -notcontains 'matcher') "SessionStart has no matcher"
 $cmd = $json.hooks.Stop[0].hooks[0].command
 Assert ($cmd -match '^powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ".+sessiondeck-hook\.ps1" Stop$') "command format ($cmd)"

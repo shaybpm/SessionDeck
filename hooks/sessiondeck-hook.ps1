@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.43  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.44  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -125,9 +125,22 @@ switch ($HookEvent) {
         if (-not $detail)             { $detail = 'Waiting for an answer to a question' }
         $cliArgs += @('--detail', $detail)
     }
+    # Also the LEADING edge of the background-agent count. Stop's background_tasks is the
+    # authoritative snapshot, but it only arrives when the turn ENDS - so a session that
+    # announces "I dispatched 3 agents" and keeps working shows nothing on its card until
+    # then, which reads as the feature being broken (Shay, 18-08-2026). A background Agent
+    # call answers in ~25ms with status 'async_launched', and that is the moment to count it.
+    # Foreground agents are excluded by that same check: their PostToolUse fires when the
+    # agent has FINISHED, so counting one would add an agent that no longer exists.
     'PostToolUse' {
-        if ($payload.tool_name -notin @('AskUserQuestion', 'ExitPlanMode')) { exit 0 }
-        $cliArgs = @('session', 'status', '--id', $sid, '--state', 'working')
+        if ($payload.tool_name -eq 'Agent') {
+            if ($payload.tool_response.status -ne 'async_launched') { exit 0 }
+            $cliArgs = @('session', 'agents', '--id', $sid, '--launched')
+        }
+        elseif ($payload.tool_name -in @('AskUserQuestion', 'ExitPlanMode')) {
+            $cliArgs = @('session', 'status', '--id', $sid, '--state', 'working')
+        }
+        else { exit 0 }
     }
     'SessionEnd' {
         $cliArgs = @('session', 'end', '--id', $sid)
