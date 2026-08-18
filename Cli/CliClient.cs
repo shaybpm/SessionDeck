@@ -99,6 +99,8 @@ public static class CliClient
         sessiondeck session new    <target>            open a NEW Claude conversation tab in the workspace
         sessiondeck session list   [--workspace <name>] [--all]
         all session commands also accept: --transcript <path> --mode <permission_mode>
+                                          --dispatcher <sid>  the session that launched this one
+                                          as a headless run; counted on ITS card, not shown here
 
         <target> = workspace id, or --match "<regex>" on the workspace name/title
         colors   = red, green, orange, blue, gray, yellow, purple, cyan, magenta, white, black, or #RRGGBB

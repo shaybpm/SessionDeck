@@ -329,14 +329,66 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         }
     }
 
-    public bool HasBackgroundAgents => _backgroundAgents > 0;
+    private string? _dispatchedBy;
+    /// <summary>The session that launched this one as a headless `claude -p` run — a wave. The
+    /// process tree cannot say it: a wave is fired through a hidden `wscript` launcher whose own
+    /// parent has exited by the time anyone looks, so the launching session is nowhere in the
+    /// child's ancestry (measured 18-08-2026). The launcher stamps it instead, and the hook
+    /// forwards it. Persisted, so a deck restart mid-wave does not lose the link.</summary>
+    public string? DispatchedBy
+    {
+        get => _dispatchedBy;
+        set { if (_dispatchedBy != value) { _dispatchedBy = value; Raise(); } }
+    }
 
-    /// <summary>The chip on the card: the icon alone for one agent, icon + count for more.</summary>
-    public string BackgroundAgentsText => _backgroundAgents > 1 ? $"🤖{_backgroundAgents}" : "🤖";
+    private int _dispatchedRuns;
+    /// <summary>How many headless runs this session launched are still going. Counted from the
+    /// live session records rather than tallied, so nothing drifts: a run that ends, is closed,
+    /// or is swept as an orphan leaves the count by itself. Deliberately does NOT hold the turn
+    /// the way <see cref="BackgroundAgents"/> does — a wave reports back through the agenda, not
+    /// into the session, so the session's turn really has ended and the card must keep saying
+    /// so.</summary>
+    public int DispatchedRuns
+    {
+        get => _dispatchedRuns;
+        set
+        {
+            if (_dispatchedRuns == value) return;
+            _dispatchedRuns = value;
+            Raise();
+            Raise(nameof(HasBackgroundAgents));
+            Raise(nameof(BackgroundAgentsText));
+            Raise(nameof(BackgroundAgentsTip));
+            Raise(nameof(TooltipText));
+        }
+    }
 
-    public string BackgroundAgentsTip => _backgroundAgents == 1
-        ? "1 subagent is still running — the session resumes on its own when it reports back"
-        : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
+    /// <summary>Everything this session has out in the world: its own subagents plus the
+    /// headless runs it launched. One chip for both, because from the deck's side they are the
+    /// same question — is anything of mine still running.</summary>
+    private int OutstandingWork => _backgroundAgents + _dispatchedRuns;
+
+    public bool HasBackgroundAgents => OutstandingWork > 0;
+
+    /// <summary>The chip on the card: the icon alone for one, icon + count for more.</summary>
+    public string BackgroundAgentsText => OutstandingWork > 1 ? $"🤖{OutstandingWork}" : "🤖";
+
+    public string BackgroundAgentsTip
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_backgroundAgents == 1)
+                parts.Add("1 subagent is still running — the session resumes on its own when it reports back");
+            else if (_backgroundAgents > 1)
+                parts.Add($"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back");
+            if (_dispatchedRuns == 1)
+                parts.Add("1 headless run it launched is still going — it reports back through the agenda, not into the session");
+            else if (_dispatchedRuns > 1)
+                parts.Add($"{_dispatchedRuns} headless runs it launched are still going — they report back through the agenda, not into the session");
+            return string.Join(Environment.NewLine, parts);
+        }
+    }
 
     private int _lostAgents;
     private string _lostAgentsDetail = "";

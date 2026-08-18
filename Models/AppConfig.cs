@@ -212,6 +212,10 @@ public class SessionConfig
     /// the inherited environment). Persisted for the same reason as Entrypoint: a restart must
     /// not un-hide a wave of automated runs that is still going.</summary>
     public bool PrintMode { get; set; }
+    /// <summary>The session that launched this one as a headless run (see
+    /// SessionViewModel.DispatchedBy). Persisted so a restart mid-wave keeps the link, which
+    /// nothing else could rebuild — the launching process tree is gone by then.</summary>
+    public string? DispatchedBy { get; set; }
     public string? EndReason { get; set; }
     public DateTime? LastEventAt { get; set; }
     public string? AutoTitle { get; set; }           // derived from the transcript (stage D)

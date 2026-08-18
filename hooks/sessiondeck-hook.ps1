@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.46  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.48  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -195,6 +195,13 @@ if ($payload.permission_mode)  { $cliArgs += @('--mode', $payload.permission_mod
 # event, not only SessionStart, so a session that predates this version gets classified on
 # its next one instead of staying unknown until it restarts.
 if ($env:CLAUDE_CODE_ENTRYPOINT) { $cliArgs += @('--entrypoint', $env:CLAUDE_CODE_ENTRYPOINT) }
+# Which session launched this one as a headless run. Nothing in the payload or the process tree
+# can answer that - a wave is fired through a hidden wscript launcher whose own parent has exited
+# by the time anyone looks - so the launcher stamps it into the environment it hands the child,
+# under a name Claude Code does not overwrite (it DOES overwrite CLAUDE_CODE_SESSION_ID with the
+# child's own id, measured 18-08-2026). Sent on every event so a run whose SessionStart the deck
+# missed still gets attributed to its launcher.
+if ($env:SESSIONDECK_DISPATCHER) { $cliArgs += @('--dispatcher', $env:SESSIONDECK_DISPATCHER) }
 
 & $exe @cliArgs | Out-Null
 exit 0

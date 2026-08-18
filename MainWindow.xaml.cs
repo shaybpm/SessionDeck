@@ -187,6 +187,7 @@ public partial class MainWindow : Window
                     PermissionMode = sc.PermissionMode,
                     Entrypoint = sc.Entrypoint,
                     PrintMode = sc.PrintMode,
+                    DispatchedBy = sc.DispatchedBy,
                     EndReason = sc.EndReason,
                     LastEventAt = sc.LastEventAt,
                     AutoTitle = sc.AutoTitle,
@@ -353,6 +354,7 @@ public partial class MainWindow : Window
                     PermissionMode = s.PermissionMode,
                     Entrypoint = s.Entrypoint,
                     PrintMode = s.PrintMode,
+                    DispatchedBy = s.DispatchedBy,
                     EndReason = s.EndReason,
                     LastEventAt = s.LastEventAt,
                     AutoTitle = s.AutoTitle,
@@ -1365,7 +1367,7 @@ public partial class MainWindow : Window
     public sealed record HookInfo(string? Detail = null, string? Transcript = null, string? Source = null,
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
                                   int? Agents = null, string? Entrypoint = null,
-                                  bool PrintMode = false)
+                                  bool PrintMode = false, string? Dispatcher = null)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1453,6 +1455,7 @@ public partial class MainWindow : Window
         if (info.Entrypoint != null) session.Entrypoint = info.Entrypoint;
         // One-way: proven once at SessionStart, and no later event can argue with it.
         if (info.PrintMode) session.PrintMode = true;
+        if (info.Dispatcher != null) session.DispatchedBy = info.Dispatcher;
     }
 
     /// <summary>The workspace's transcripts folder, learned from any hook event that
@@ -1725,7 +1728,34 @@ public partial class MainWindow : Window
         // a session opened on it. ApplyDeckVisibility ends in RefreshBlinkAndSummary, so it
         // replaces the call that was here instead of adding a second pass.
         ApplyDeckVisibility();
+        RefreshDispatchedRuns();
         QueueSave();
+    }
+
+    /// <summary>Recount, for every session, how many headless runs it launched are still working.
+    /// A walk over all the records rather than a tally kept on the launcher: a run can end, be
+    /// closed by hand, or be swept as an orphan, and only some of those paths would remember to
+    /// decrement. The walk covers a few hundred records and runs on session events only.
+    ///
+    /// Counted on `working`, not merely on "not closed", and that is the difference between a
+    /// number that empties itself and one that only grows. A `claude -p` run has exactly one
+    /// turn: working while it does the job, done when the turn ends, and then it exits - so
+    /// `done` already means finished, whether or not its SessionEnd ever arrived. Measured while
+    /// building this: of two runs launched, one closed cleanly and one was left sitting at done
+    /// with no SessionEnd at all, and a "not closed" count would have pinned the launcher's card
+    /// at one forever. A run woken by its own background agent is turned back to `working` by the
+    /// Stop hook, so a genuinely busy run is never missed.</summary>
+    private void RefreshDispatchedRuns()
+    {
+        var live = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var w in Vm.Workspaces)
+            foreach (var s in w.Sessions)
+                if (!s.Closed && s.Status == SessionStatus.Working &&
+                    s.DispatchedBy is { Length: > 0 } owner)
+                    live[owner] = live.GetValueOrDefault(owner) + 1;
+        foreach (var w in Vm.Workspaces)
+            foreach (var s in w.Sessions)
+                s.DispatchedRuns = live.GetValueOrDefault(s.SessionId);
     }
 
     /// <summary>Click on a session card = acknowledge + focus the window + open/resume the
