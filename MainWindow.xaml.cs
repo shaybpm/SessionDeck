@@ -1514,6 +1514,28 @@ public partial class MainWindow : Window
         return named;
     }
 
+    /// <summary>One background subagent was just dispatched (PostToolUse on an Agent call that
+    /// answered `async_launched`). The Stop payload's snapshot is still the authority on how many
+    /// are out — but it only arrives when the turn ENDS, so a session that dispatches a wave and
+    /// then works on for ten minutes showed an empty card for all of them, which reads as the
+    /// count being broken (reported 18-08-2026, measured: 86 seconds from the launch to the first
+    /// Stop, and the chip cleared 4 minutes later once they were done). Counting up here is a
+    /// tally, so it can overcount for the rest of the turn if an agent finishes early; the next
+    /// Stop overwrites it with the truth, and an agent finishing wakes the session, which produces
+    /// exactly such a Stop. Status is deliberately untouched: this fires mid-turn.</summary>
+    public (string, bool) NoteAgentLaunched(string sessionId, HookInfo info)
+    {
+        if (Vm.FindSession(sessionId) is not { } found)
+            return ($"unknown session id {sessionId}", false);
+        var (ws, session) = found;
+        session.BackgroundAgents++;
+        ApplyHookInfo(session, info);
+        LearnTranscriptDir(ws, info);
+        LogService.Info("status", $"session={sessionId} background agent launched " +
+                                  $"({session.BackgroundAgents} out) ws=\"{ws.DisplayTitle}\"");
+        return ($"session {sessionId}: {session.BackgroundAgents} background agents", true);
+    }
+
     public (string, bool) SetSessionStatus(string sessionId, SessionStatus status, string workspaceArg, HookInfo info)
     {
         // A turn that ended while background subagents are still running is not the user's

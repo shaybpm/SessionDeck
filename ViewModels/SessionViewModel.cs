@@ -291,12 +291,15 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     }
 
     private int _backgroundAgents;
-    /// <summary>Subagents still running in the background as of this session's last turn
-    /// end, read from the Stop hook's <c>background_tasks</c>. It is the only signal there
-    /// is: a background Agent call returns its id in milliseconds, so the transcript shows
-    /// a finished tool call and the scanner sees nothing to wait for. While it is non-zero
-    /// the card stays "working" instead of claiming the user's turn. Not persisted — after
-    /// a deck restart the session's next Stop refills it.</summary>
+    /// <summary>Subagents still running in the background. Two sources, in this order: the
+    /// PostToolUse on each dispatched Agent counts UP as it is launched (v0.9.44 — the
+    /// leading edge, so the chip appears with the agents rather than at the end of the turn),
+    /// and the Stop hook's <c>background_tasks</c> snapshot then overwrites the tally with the
+    /// truth. Hooks are the only signal there is: a background Agent call returns its id in
+    /// milliseconds, so the transcript shows a finished tool call and the scanner sees nothing
+    /// to wait for. While it is non-zero the card stays "working" instead of claiming the
+    /// user's turn. Not persisted — after a deck restart the session's next Stop refills
+    /// it.</summary>
     public int BackgroundAgents
     {
         get => _backgroundAgents;

@@ -91,6 +91,9 @@ public static class CliClient
         sessiondeck session status --id <sid> --state working|waiting|done|error|idle [--detail "..."]
                                    [--agents <n>]  subagents still running in the background; a
                                                    done with n>0 lands on working, not "your turn"
+        sessiondeck session agents --id <sid> --launched   one background subagent was just
+                                                   dispatched; +1 to the card's 🤖 chip until
+                                                   the next Stop replaces it with the snapshot
         sessiondeck session end    --id <sid> [--reason <r>]
         sessiondeck session open   --id <sid>          focus VSCode + open/resume the session's tab
         sessiondeck session new    <target>            open a NEW Claude conversation tab in the workspace
