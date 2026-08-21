@@ -39,6 +39,24 @@ public sealed class VscodeConnection
     public string WorkspacePath { get; set; } = "";
     public int Pid { get; set; }
 
+    /// <summary>This window's own Claude tabs, from its last sync. Held per connection
+    /// rather than merged straight onto the workspace: two VSCode windows can have the
+    /// same folder open (a second account, a second profile), and each sync carries only
+    /// the sending window's tabs — so a shared list is overwritten by whichever window
+    /// synced last and the card ends up describing one window at a time (21-08-2026).</summary>
+    public List<VscodeTab> Tabs { get; set; } = new();
+
+    /// <summary>The window had OS focus at its last sync.</summary>
+    public bool Focused { get; set; }
+
+    /// <summary>When this window was last seen focused — the tie-break for which window a
+    /// command goes to when several share a folder.</summary>
+    public DateTime LastFocusedAt { get; set; }
+
+    /// <summary>Process that owns this connector's VSCode WINDOW (the extension host's
+    /// parent). Resolved once on connect; 0 when it couldn't be read.</summary>
+    public int OwnerPid { get; set; }
+
     internal VscodeConnection(StreamWriter writer) => _writer = writer;
 
     /// <summary>Fire-and-forget: the write happens off-thread so a stalled client can

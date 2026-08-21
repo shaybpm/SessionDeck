@@ -223,6 +223,9 @@ public sealed class CommandExecutor
                 if (!a.Options.TryGetValue("id", out var id)) return Err("session open requires --id <session_id>");
                 if (Vm.FindSession(id) is not { } found) return Err($"unknown session id {id}");
                 var (ws, session) = found;
+                // Same order as a click on the card: pick the window first, so a folder
+                // open in two windows raises the one the session actually lives in.
+                _window.PointCardAtSessionWindow(ws, session);
                 _window.FocusWorkspace(ws);
                 var (sent, msg) = _window.OpenSessionInVscode(ws, session);
                 return sent ? Ok($"opening session {id} in VSCode") : Err(msg);

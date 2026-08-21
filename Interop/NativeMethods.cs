@@ -156,6 +156,50 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+    // ---- process parentage (which VSCode window an extension host belongs to) ----
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessBasicInformation
+    {
+        public IntPtr Reserved1;
+        public IntPtr PebBaseAddress;
+        public IntPtr Reserved2_0;
+        public IntPtr Reserved2_1;
+        public IntPtr UniqueProcessId;
+        public IntPtr InheritedFromUniqueProcessId;
+    }
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr handle, int infoClass,
+        ref ProcessBasicInformation info, int size, out int returned);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(int access, [MarshalAs(UnmanagedType.Bool)] bool inherit, int pid);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private const int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    /// <summary>Parent process id, or 0 if it can't be read. The VSCode extension host is
+    /// a child of the process that owns the window, which is the only way to tell WHICH
+    /// window a connector belongs to — the extension can't see its own HWND.</summary>
+    public static int GetParentProcessId(int pid)
+    {
+        if (pid <= 0) return 0;
+        IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return 0;
+        try
+        {
+            var info = new ProcessBasicInformation();
+            if (NtQueryInformationProcess(handle, 0, ref info, Marshal.SizeOf(info), out _) != 0) return 0;
+            return (int)info.InheritedFromUniqueProcessId;
+        }
+        catch { return 0; }
+        finally { CloseHandle(handle); }
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
 

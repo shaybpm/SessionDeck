@@ -36,6 +36,12 @@ public static class WindowEnumerator
         return true;
     }
 
+    public static int GetProcessId(IntPtr hwnd)
+    {
+        NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+        return (int)pid;
+    }
+
     public static string GetProcessName(IntPtr hwnd)
     {
         NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
