@@ -2072,15 +2072,22 @@ public partial class MainWindow : Window
 
     /// <summary>Move the card's window bind onto the window a command was just routed to.
     ///
-    /// Binding matches on the window TITLE, which is the folder name — so with the same
-    /// folder open in two windows it binds whichever Windows enumerated first, and the deck
-    /// then raised one window while opening the session in the other (Shay, 21-08-2026: the
-    /// previous window came to the front). Only ever fires while a folder is open more than
-    /// once; a single-window card is left exactly as the title match left it.</summary>
+    /// Binding matches on the window TITLE, and the title fails in two different ways. With
+    /// one folder open in two windows it binds whichever Windows enumerated first, so the
+    /// deck raised one window while opening the session in the other (Shay, 21-08-2026). And
+    /// a window with a custom `window.title` matches NOTHING, so its card never binds at all
+    /// and every click launched yet another VSCode window on a folder that was already open
+    /// (Shay, 22-08-2026). The connector's owning process answers both.
+    ///
+    /// A card already bound inside the right VSCode process is left exactly as the title
+    /// match left it: this only ever moves a bind that is missing or wrong.</summary>
     private void RebindToConnectorWindow(WorkspaceViewModel ws, VscodeConnection? conn)
     {
-        if (conn == null || conn.OwnerPid == 0 || ConnectorCount(ws) < 2) return;
-        if (ws.Hwnd != IntPtr.Zero && WindowEnumerator.GetProcessId(ws.Hwnd) == conn.OwnerPid) return;
+        if (conn == null || conn.OwnerPid == 0) return;
+        // Already the right window (or another window of the same VSCode process, which
+        // this cannot improve on): leave the title match's answer alone.
+        if (ws.State == BindState.Connected && NativeMethods.IsWindow(ws.Hwnd) &&
+            WindowEnumerator.GetProcessId(ws.Hwnd) == conn.OwnerPid) return;
 
         var windows = WindowEnumerator.GetCandidates()
             .Where(c => WorkspaceMetadata.IsVsCodeProcess(c.ProcessName) &&
@@ -2171,6 +2178,14 @@ public partial class MainWindow : Window
     public (bool, string) FocusWorkspace(WorkspaceViewModel ws)
     {
         ws.LastUsedAt = DateTime.Now;   // opening a card from the deck is using it
+        if (ws.State != BindState.Connected || !NativeMethods.IsWindow(ws.Hwnd))
+        {
+            // A live connector means the folder IS open in a window, whatever the title
+            // match believes. Launching another one on top of it is the worst answer, and
+            // it is what a card whose window can't be title-matched used to do on every
+            // single click (Shay, 22-08-2026: "it opens the wrong place").
+            RebindToConnectorWindow(ws, FindConnector(ws));
+        }
         if (ws.State != BindState.Connected || !NativeMethods.IsWindow(ws.Hwnd))
         {
             // No bound window — open VSCode on the folder; auto-bind picks it up (feedback 2026-07-19).
