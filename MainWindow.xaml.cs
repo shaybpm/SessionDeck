@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -192,6 +192,7 @@ public partial class MainWindow : Window
                     LastEventAt = sc.LastEventAt,
                     AutoTitle = sc.AutoTitle,
                     TabTitle = sc.TabTitle,
+                    BackgroundAgents = sc.BackgroundAgents,
                     // Restored waiting must be re-provable from the transcript, or the
                     // first scan clears it (T-0313: a fork-phantom orange otherwise
                     // survives restarts — the persisted status said waiting and the
@@ -203,7 +204,13 @@ public partial class MainWindow : Window
                 // restored "working" whose transcript went quiet has no Stop coming —
                 // it would stay blue forever (T-0313 follow-up). A genuinely running
                 // session re-proves itself within one turn.
-                if (svm.Status == SessionStatus.Working && !svm.Closed &&
+                // ...but a session with background agents out is the one case where a quiet
+                // transcript proves nothing: the agents write their OWN files while the main
+                // one waits, and they wake the session themselves when they finish. Dropping
+                // it to idle here showed a card as idle while five agents were still running
+                // (Shay, 21-08-2026). If they really died with the previous process, the
+                // stopped-agent notification scan turns the card red instead.
+                if (svm.Status == SessionStatus.Working && !svm.Closed && svm.BackgroundAgents == 0 &&
                     !TranscriptActiveWithin(svm, RecentTranscriptActivity))
                 {
                     svm.Status = SessionStatus.Idle;
@@ -359,6 +366,7 @@ public partial class MainWindow : Window
                     LastEventAt = s.LastEventAt,
                     AutoTitle = s.AutoTitle,
                     TabTitle = s.TabTitle,
+                    BackgroundAgents = s.BackgroundAgents,
                 });
             }
             cfg.Workspaces.Add(wc);
@@ -567,10 +575,13 @@ public partial class MainWindow : Window
     {
         foreach (var ws in Vm.Workspaces.ToList())
         {
-            bool connected = FindConnector(ws) != null;
-            // Two windows on the same workspace race SetClaudeTabs (see extension.ts) —
-            // the stored tab list reflects only one of them, so absence proves nothing.
-            bool tabsAuthoritative = connected && ConnectorCount(ws) == 1;
+            bool connected = ConnectorCount(ws) > 0;
+            // The tab list is the union over every window with this folder open (see
+            // ApplyConnectorState), so absence from it means absent from all of them.
+            // It used to be one window's list overwriting another's, which forced this
+            // sweep off for any folder open twice — and a card that never sweeps keeps
+            // dead sessions forever, which is what "Open only" then showed (21-08-2026).
+            bool tabsAuthoritative = connected;
             foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).ToList())
             {
                 bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
@@ -1769,6 +1780,11 @@ public partial class MainWindow : Window
             RefreshBlinkAndSummary();
             QueueSave();
         }
+        // Decide the target window BEFORE focusing: with the folder open twice, the card's
+        // bind (a title match, which can't tell two windows on one folder apart) is not
+        // necessarily the window the session lives in.
+        var target = FindConnector(ws, session);
+        RebindToConnectorWindow(ws, target);
         FocusWorkspace(ws);
 
         // Resume-by-id only works when the transcript still exists under the workspace's
@@ -1786,7 +1802,7 @@ public partial class MainWindow : Window
         // session"). The log line matters for the same reason: nothing in this path wrote
         // one, so afterwards there was no way to tell a click that failed from a click that
         // never happened.
-        var (sent, reason) = OpenSessionInVscode(ws, session);
+        var (sent, reason) = OpenSessionInVscode(ws, session, target);
         LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" " +
                                 (sent ? "sent" : $"FAILED: {reason}"));
         SetStatus(sent
@@ -1819,18 +1835,23 @@ public partial class MainWindow : Window
         if (isNew) _connectors.Add(conn);
         conn.Pid = sync.Pid;
         conn.WorkspacePath = sync.Workspace ?? "";
+        conn.Tabs = sync.Tabs;
+        conn.Focused = sync.Focused;
+        if (sync.Focused) conn.LastFocusedAt = DateTime.Now;
         if (isNew)
-            LogService.Info("vscode", $"connected pid={conn.Pid} ws=\"{conn.WorkspacePath}\"");
+        {
+            conn.OwnerPid = NativeMethods.GetParentProcessId(conn.Pid);
+            LogService.Info("vscode", $"connected pid={conn.Pid} window-pid={conn.OwnerPid} ws=\"{conn.WorkspacePath}\"");
+        }
         if (conn.WorkspacePath.Length == 0) return;
 
         if (Vm.FindByPath(conn.WorkspacePath) is { } ws)
         {
             // The extension is the fresher branch source (event-driven vs our 10s poll).
             if (!string.IsNullOrEmpty(sync.Branch)) ws.Branch = sync.Branch;
-            var labels = sync.Tabs.Select(t => t.Label).ToList();
-            ws.SetClaudeTabs(labels);
-            ws.ActiveClaudeTabLabel = sync.Focused ? sync.Tabs.FirstOrDefault(t => t.Active)?.Label : null;
-            LogService.Debug("sync", $"ws=\"{ws.DisplayTitle}\" focused={sync.Focused}" +
+            var labels = ApplyConnectorState(ws);
+            LogService.Debug("sync", $"ws=\"{ws.DisplayTitle}\" pid={sync.Pid} focused={sync.Focused}" +
+                $" windows={ConnectorCount(ws)}" +
                 $" active=\"{ws.ActiveClaudeTabLabel}\" tabs=[{string.Join(" | ", labels)}]");
 
             if (ReapplyTabCorrelation(ws))
@@ -1874,13 +1895,18 @@ public partial class MainWindow : Window
     {
         LogService.Info("vscode", $"disconnected pid={conn.Pid} ws=\"{conn.WorkspacePath}\"");
         _connectors.Remove(conn);
-        if (conn.WorkspacePath.Length > 0 &&
-            Vm.FindByPath(conn.WorkspacePath) is { } ws && FindConnector(ws) == null)
+        if (conn.WorkspacePath.Length == 0 || Vm.FindByPath(conn.WorkspacePath) is not { } ws) return;
+        if (ConnectorCount(ws) > 0)
         {
-            ws.SetClaudeTabs(new List<string>());
-            ws.ActiveClaudeTabLabel = null;
-            foreach (var s in ws.Sessions) s.OpenAsTab = false;
+            // Another window still has this folder open — recompute from the survivors
+            // instead of clearing, or closing one of two windows would blank the card.
+            ApplyConnectorState(ws);
+            if (ReapplyTabCorrelation(ws)) RefreshBlinkAndSummary();
+            return;
         }
+        ws.SetClaudeTabs(new List<string>());
+        ws.ActiveClaudeTabLabel = null;
+        foreach (var s in ws.Sessions) s.OpenAsTab = false;
     }
 
     /// <summary>VSCode truncates long tab labels with a trailing '…' (bug 2026-07-19) —
@@ -1998,27 +2024,110 @@ public partial class MainWindow : Window
         return changed;
     }
 
-    private VscodeConnection? FindConnector(WorkspaceViewModel ws)
+    /// <summary>Every live VSCode window with this folder open, in connection order. More
+    /// than one is normal: a second window on the same folder signed into another account
+    /// is exactly what Shay runs (21-08-2026).</summary>
+    private List<VscodeConnection> ConnectorsFor(WorkspaceViewModel ws)
     {
-        if (ws.Path.Length == 0) return null;
+        if (ws.Path.Length == 0) return new List<VscodeConnection>();
         string norm = WorkspaceMetadata.NormalizePath(ws.Path);
-        return _connectors.LastOrDefault(c => c.WorkspacePath.Length > 0 &&
-            WorkspaceMetadata.NormalizePath(c.WorkspacePath) == norm);
+        return _connectors.Where(c => c.WorkspacePath.Length > 0 &&
+            WorkspaceMetadata.NormalizePath(c.WorkspacePath) == norm).ToList();
     }
 
-    private int ConnectorCount(WorkspaceViewModel ws)
+    /// <summary>Which window a command for this workspace goes to.
+    ///
+    /// With one window there is no question. With several, "the one that connected last"
+    /// (the old rule) is whichever window's extension host restarted most recently — it
+    /// flips under the user with nothing on screen to explain it, which is how sessions
+    /// opened from the deck kept landing in the wrong window. The order now is: the window
+    /// that already shows this session's tab (revealing it there is the only answer that
+    /// can't start a second copy of the same conversation), then the window the user was
+    /// most recently working in, then the last to connect.</summary>
+    private VscodeConnection? FindConnector(WorkspaceViewModel ws, SessionViewModel? session = null)
     {
-        if (ws.Path.Length == 0) return 0;
-        string norm = WorkspaceMetadata.NormalizePath(ws.Path);
-        return _connectors.Count(c => c.WorkspacePath.Length > 0 &&
-            WorkspaceMetadata.NormalizePath(c.WorkspacePath) == norm);
+        var conns = ConnectorsFor(ws);
+        if (conns.Count <= 1) return conns.FirstOrDefault();
+
+        if (session != null &&
+            conns.LastOrDefault(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session))) is { } holder)
+        {
+            LogService.Debug("route", $"session={session.SessionId} → pid={holder.Pid} (holds the tab)");
+            return holder;
+        }
+        var focused = conns.Where(c => c.LastFocusedAt != default)
+                           .OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
+        var pick = focused ?? conns[^1];
+        LogService.Debug("route", $"ws=\"{ws.DisplayTitle}\" → pid={pick.Pid} " +
+            (focused != null ? "(last focused)" : "(last connected)") + $" of {conns.Count} windows");
+        return pick;
+    }
+
+    private int ConnectorCount(WorkspaceViewModel ws) => ConnectorsFor(ws).Count;
+
+    /// <summary>Point the card at the window this session lives in, before anything focuses
+    /// it. For callers outside the click handler (the CLI's `session open`).</summary>
+    public void PointCardAtSessionWindow(WorkspaceViewModel ws, SessionViewModel session)
+        => RebindToConnectorWindow(ws, FindConnector(ws, session));
+
+    /// <summary>Move the card's window bind onto the window a command was just routed to.
+    ///
+    /// Binding matches on the window TITLE, which is the folder name — so with the same
+    /// folder open in two windows it binds whichever Windows enumerated first, and the deck
+    /// then raised one window while opening the session in the other (Shay, 21-08-2026: the
+    /// previous window came to the front). Only ever fires while a folder is open more than
+    /// once; a single-window card is left exactly as the title match left it.</summary>
+    private void RebindToConnectorWindow(WorkspaceViewModel ws, VscodeConnection? conn)
+    {
+        if (conn == null || conn.OwnerPid == 0 || ConnectorCount(ws) < 2) return;
+        if (ws.Hwnd != IntPtr.Zero && WindowEnumerator.GetProcessId(ws.Hwnd) == conn.OwnerPid) return;
+
+        var windows = WindowEnumerator.GetCandidates()
+            .Where(c => WorkspaceMetadata.IsVsCodeProcess(c.ProcessName) &&
+                        WindowEnumerator.GetProcessId(c.Hwnd) == conn.OwnerPid).ToList();
+        // One window in that process leaves nothing to disambiguate, and the pid alone is
+        // the stronger evidence anyway: a window with a custom `window.title` (Shay's
+        // "DEV MGMT · .claude") matches no card pattern at all, which is exactly why the
+        // bind had gone to the other window in the first place.
+        var match = windows.Count == 1 ? windows[0]
+                                       : windows.FirstOrDefault(c => SafeIsMatch(c.Title, ws.TitlePattern));
+        if (match == null)
+        {
+            LogService.Debug("bind", $"ws=\"{ws.DisplayTitle}\" no window of pid={conn.OwnerPid} " +
+                                     $"identifies itself ({windows.Count} candidates) — bind left alone");
+            return;
+        }
+        if (match.Hwnd == ws.Hwnd) return;
+        // A window belongs to one card. If some other card already holds it, leave both
+        // alone rather than passing the window back and forth on every click.
+        if (Vm.FindByHwnd(match.Hwnd) is { } other && other != ws) return;
+
+        LogService.Info("bind", $"ws=\"{ws.DisplayTitle}\" re-bound to the window holding the session " +
+                                $"(window-pid={conn.OwnerPid}, title=\"{match.Title}\")");
+        Bind(ws, match.Hwnd, match.Title, match.ProcessName);
+    }
+
+    /// <summary>Recompute the card's VSCode state from ALL its windows: the tab list is
+    /// their union (a card describes the folder, and a session's tab counts wherever it is
+    /// open), and the active tab comes only from a window that currently has focus —
+    /// an unfocused window's sync must not blank out what the focused one reported.
+    /// Returns the union, for the caller's log line.</summary>
+    private List<string> ApplyConnectorState(WorkspaceViewModel ws)
+    {
+        var conns = ConnectorsFor(ws);
+        var labels = conns.SelectMany(c => c.Tabs).Select(t => t.Label).Distinct().ToList();
+        ws.SetClaudeTabs(labels);
+        var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
+        ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
+        return labels;
     }
 
     /// <summary>Open/resume the session's tab in VSCode. Without a live connector the request
     /// is parked; it's flushed when the extension connects (VSCode may still be launching).</summary>
-    public (bool, string) OpenSessionInVscode(WorkspaceViewModel ws, SessionViewModel session)
+    public (bool, string) OpenSessionInVscode(WorkspaceViewModel ws, SessionViewModel session,
+                                              VscodeConnection? conn = null)
     {
-        var conn = FindConnector(ws);
+        conn ??= FindConnector(ws, session);
         if (conn == null)
         {
             if (ws.Path.Length > 0)
@@ -2038,8 +2147,9 @@ public partial class MainWindow : Window
     /// An optional opening prompt (a task's newSessionPrompt, T-0116) rides along.</summary>
     public (bool, string) NewSessionInVscode(WorkspaceViewModel ws, string? prompt = null)
     {
-        FocusWorkspace(ws);
         var conn = FindConnector(ws);
+        RebindToConnectorWindow(ws, conn);      // same folder open twice: raise the right window
+        FocusWorkspace(ws);
         if (conn == null)
         {
             if (ws.Path.Length > 0)

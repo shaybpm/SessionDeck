@@ -1,4 +1,4 @@
-namespace SessionDeck.Models;
+﻿namespace SessionDeck.Models;
 
 // Order matters: ZoneModeCombo items are mapped by index cast (persistence is by name).
 public enum ZoneMode { Off, QuarterLeft, HalfLeft, HalfRight, QuarterRight, Full, CustomLeft, CustomRight }
@@ -220,6 +220,11 @@ public class SessionConfig
     public DateTime? LastEventAt { get; set; }
     public string? AutoTitle { get; set; }           // derived from the transcript (stage D)
     public string? TabTitle { get; set; }            // VSCode tab label (last ai-title entry)
+    /// <summary>Background agents still out when the deck was last saved. Persisted because
+    /// they are the one reason a WORKING session's transcript goes quiet without the session
+    /// being over — without this a restart mid-run read the silence as death and dropped the
+    /// card to idle while five agents were still working (Shay, 21-08-2026).</summary>
+    public int BackgroundAgents { get; set; }
 }
 
 /// <summary>Session status → border style. Lives in config so the mapping can change

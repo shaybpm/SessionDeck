@@ -133,6 +133,18 @@ ambiguous label (two sessions answering to it) resolves to **nothing**. The gove
 principle, which shows up all over this area: a card that keeps blinking is a recoverable
 failure, an alert that vanishes quietly is not.
 
+**One folder, more than one window.** A card is a FOLDER, and the same folder can be open
+in two VSCode windows at once (a second window signed into another account is what Shay
+runs). Nothing in a hook payload says which window a session belongs to — the payload
+carries `cwd` — so both windows' sessions land on the same card, by design. What must not
+collapse is the window-level state: each `VscodeConnection` keeps its OWN tab list and its
+own focus, the card's tab list is their union, and the active tab comes only from a window
+that currently has focus. Commands (`openSession`, `newSession`) go to the window that
+already holds the session's tab, else the window last focused. Before that, the card's
+window bind is moved onto the same window — binding matches on the window TITLE, which
+cannot tell two windows on one folder apart and misses entirely when a window sets a custom
+`window.title`, so the extension host's parent process id is the tie-break.
+
 ## Where state lives
 
 | Path | Contents |
