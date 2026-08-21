@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.48  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.50  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
