@@ -192,6 +192,7 @@ public partial class MainWindow : Window
                     LastEventAt = sc.LastEventAt,
                     AutoTitle = sc.AutoTitle,
                     TabTitle = sc.TabTitle,
+                    BackgroundAgents = sc.BackgroundAgents,
                     // Restored waiting must be re-provable from the transcript, or the
                     // first scan clears it (T-0313: a fork-phantom orange otherwise
                     // survives restarts — the persisted status said waiting and the
@@ -203,7 +204,13 @@ public partial class MainWindow : Window
                 // restored "working" whose transcript went quiet has no Stop coming —
                 // it would stay blue forever (T-0313 follow-up). A genuinely running
                 // session re-proves itself within one turn.
-                if (svm.Status == SessionStatus.Working && !svm.Closed &&
+                // ...but a session with background agents out is the one case where a quiet
+                // transcript proves nothing: the agents write their OWN files while the main
+                // one waits, and they wake the session themselves when they finish. Dropping
+                // it to idle here showed a card as idle while five agents were still running
+                // (Shay, 21-08-2026). If they really died with the previous process, the
+                // stopped-agent notification scan turns the card red instead.
+                if (svm.Status == SessionStatus.Working && !svm.Closed && svm.BackgroundAgents == 0 &&
                     !TranscriptActiveWithin(svm, RecentTranscriptActivity))
                 {
                     svm.Status = SessionStatus.Idle;
@@ -359,6 +366,7 @@ public partial class MainWindow : Window
                     LastEventAt = s.LastEventAt,
                     AutoTitle = s.AutoTitle,
                     TabTitle = s.TabTitle,
+                    BackgroundAgents = s.BackgroundAgents,
                 });
             }
             cfg.Workspaces.Add(wc);
