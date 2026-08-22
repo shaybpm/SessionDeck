@@ -141,9 +141,25 @@ collapse is the window-level state: each `VscodeConnection` keeps its OWN tab li
 own focus, the card's tab list is their union, and the active tab comes only from a window
 that currently has focus. Commands (`openSession`, `newSession`) go to the window that
 already holds the session's tab, else the window last focused. Before that, the card's
-window bind is moved onto the same window — binding matches on the window TITLE, which
-cannot tell two windows on one folder apart and misses entirely when a window sets a custom
-`window.title`, so the extension host's parent process id is the tie-break.
+window bind is moved onto the same window.
+
+**Which OS window is a connector in?** The extension cannot see its own `HWND`, and the two
+obvious answers both fail. The TITLE cannot tell two windows on one folder apart and misses
+entirely when a window sets a custom `window.title`. The PID cannot help either: Electron
+creates every window inside the Electron main process, and the extension host is a utility
+child of that same main process, so all of one instance's windows and hosts report one pid
+(measured 22-08-2026: four windows, four hosts, pid 53380 for all eight). `OwnerPid` therefore
+identifies the VSCode INSTANCE, which is still worth having — a second window signed into
+another account is a second instance — and nothing finer.
+
+The answer is focus correlation (`CorrelateConnectorWindow`): when the extension reports that
+its window has OS focus, `GetForegroundWindow()` says which window that is, and the pair is
+recorded on the connection as `Hwnd`. One API call per sync, no extension change, and it
+self-corrects — whatever a window was thought to be, the next time the user works in it, it
+says so itself. A connector that has not been focused since it connected has no `Hwnd` yet,
+and `RebindToConnectorWindow` falls back to the title, weakest-last: the card's own pattern,
+then any window of that instance whose title merely NAMES the folder (what a custom title
+still does), then a lone window in the instance — skipping windows another card already owns.
 
 ## Where state lives
 

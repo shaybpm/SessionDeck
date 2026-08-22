@@ -1838,6 +1838,7 @@ public partial class MainWindow : Window
         conn.Tabs = sync.Tabs;
         conn.Focused = sync.Focused;
         if (sync.Focused) conn.LastFocusedAt = DateTime.Now;
+        CorrelateConnectorWindow(conn);
         if (isNew)
         {
             conn.OwnerPid = NativeMethods.GetParentProcessId(conn.Pid);
@@ -2070,6 +2071,44 @@ public partial class MainWindow : Window
     public void PointCardAtSessionWindow(WorkspaceViewModel ws, SessionViewModel session)
         => RebindToConnectorWindow(ws, FindConnector(ws, session));
 
+    /// <summary>Learn which OS window a connector lives in, at the one moment the two
+    /// systems can be lined up: the extension reports that its window has focus, and Windows
+    /// says which window that is.
+    ///
+    /// Nothing cheaper works. The pid cannot answer it - Electron creates every window in the
+    /// MAIN process and the extension host is a utility child of that same main process, so
+    /// all four of Shay's windows and all four of their hosts report pid 53380 (measured
+    /// 22-08-2026). It only looked like a window id on 21-08 because the second window was a
+    /// second VSCode INSTANCE with its own main process; one reboot put everything back into
+    /// one instance and the answer collapsed to "the whole instance". The title cannot answer
+    /// it either: two windows on one folder carry the same title, and a custom `window.title`
+    /// matches no pattern at all.
+    ///
+    /// One API call per sync, and it self-corrects: whatever a window was thought to be, the
+    /// next time the user works in it, it says so itself.</summary>
+    private void CorrelateConnectorWindow(VscodeConnection conn)
+    {
+        if (!conn.Focused) return;
+        IntPtr fg = NativeMethods.GetForegroundWindow();
+        if (fg == IntPtr.Zero || fg == conn.Hwnd) return;
+        // The foreground window has to BE VSCode, and this connector's VSCode when we know
+        // which instance that is. Guards the one race in the protocol: a 2s heartbeat whose
+        // focus flag was true a moment ago, while the user has already switched away, must
+        // not stamp whatever is in front now onto this connector.
+        int fgPid = WindowEnumerator.GetProcessId(fg);
+        bool sameVscode = conn.OwnerPid != 0
+            ? fgPid == conn.OwnerPid
+            : WorkspaceMetadata.IsVsCodeProcess(WindowEnumerator.GetProcessName(fg));
+        if (!sameVscode) return;
+        // A window hosts one folder, so one connector. Whoever held this hwnd on older,
+        // weaker evidence loses it.
+        foreach (var other in _connectors)
+            if (other != conn && other.Hwnd == fg) other.Hwnd = IntPtr.Zero;
+        conn.Hwnd = fg;
+        LogService.Info("vscode", $"window identified pid={conn.Pid} ws=\"{conn.WorkspacePath}\" " +
+                                  $"hwnd=0x{fg.ToInt64():X} title=\"{NativeMethods.GetWindowTextSafe(fg)}\"");
+    }
+
     /// <summary>Move the card's window bind onto the window a command was just routed to.
     ///
     /// Binding matches on the window TITLE, and the title fails in two different ways. With
@@ -2077,40 +2116,60 @@ public partial class MainWindow : Window
     /// deck raised one window while opening the session in the other (Shay, 21-08-2026). And
     /// a window with a custom `window.title` matches NOTHING, so its card never binds at all
     /// and every click launched yet another VSCode window on a folder that was already open
-    /// (Shay, 22-08-2026). The connector's owning process answers both.
+    /// (Shay, 22-08-2026).
     ///
-    /// A card already bound inside the right VSCode process is left exactly as the title
-    /// match left it: this only ever moves a bind that is missing or wrong.</summary>
+    /// The connector's own window answers both, once focus correlation has identified it.
+    /// Until then all the connector proves is which VSCode INSTANCE the folder is open in -
+    /// the pid is instance-wide, not per window, which is why this whole path went inert the
+    /// moment a reboot put both of Shay's windows in one instance (22-08-2026). Then the
+    /// title is still the only discriminator, and the fallbacks below run weakest-last.</summary>
     private void RebindToConnectorWindow(WorkspaceViewModel ws, VscodeConnection? conn)
     {
-        if (conn == null || conn.OwnerPid == 0) return;
-        // Already the right window (or another window of the same VSCode process, which
-        // this cannot improve on): leave the title match's answer alone.
+        if (conn == null) return;
+
+        // Identified: exact, and it needs no title at all.
+        if (conn.Hwnd != IntPtr.Zero && NativeMethods.IsWindow(conn.Hwnd))
+        {
+            if (ws.Hwnd == conn.Hwnd) return;
+            // A window belongs to one card. If some other card already holds it, leave both
+            // alone rather than passing the window back and forth on every click.
+            if (Vm.FindByHwnd(conn.Hwnd) is { } holder && holder != ws) return;
+            string title = NativeMethods.GetWindowTextSafe(conn.Hwnd);
+            LogService.Info("bind", $"ws=\"{ws.DisplayTitle}\" re-bound to its connector's own window " +
+                                    $"(hwnd=0x{conn.Hwnd.ToInt64():X}, title=\"{title}\")");
+            Bind(ws, conn.Hwnd, title, WindowEnumerator.GetProcessName(conn.Hwnd));
+            return;
+        }
+        if (conn.OwnerPid == 0) return;
+        // Not identified yet - the user has not worked in that window since it connected. A
+        // bind the card's own title pattern agrees with beats anything guessed below.
         if (ws.State == BindState.Connected && NativeMethods.IsWindow(ws.Hwnd) &&
-            WindowEnumerator.GetProcessId(ws.Hwnd) == conn.OwnerPid) return;
+            SafeIsMatch(ws.WindowTitle, ws.TitlePattern)) return;
 
         var windows = WindowEnumerator.GetCandidates()
             .Where(c => WorkspaceMetadata.IsVsCodeProcess(c.ProcessName) &&
-                        WindowEnumerator.GetProcessId(c.Hwnd) == conn.OwnerPid).ToList();
-        // One window in that process leaves nothing to disambiguate, and the pid alone is
-        // the stronger evidence anyway: a window with a custom `window.title` (Shay's
-        // "DEV MGMT · .claude") matches no card pattern at all, which is exactly why the
-        // bind had gone to the other window in the first place.
-        var match = windows.Count == 1 ? windows[0]
-                                       : windows.FirstOrDefault(c => SafeIsMatch(c.Title, ws.TitlePattern));
+                        WindowEnumerator.GetProcessId(c.Hwnd) == conn.OwnerPid &&
+                        (Vm.FindByHwnd(c.Hwnd) is not { } owner || owner == ws)).ToList();
+        string leaf = WorkspaceMetadata.NameFromPath(ws.Path);
+        // Weakest last: the card's own pattern, then any window that merely NAMES the folder
+        // (a custom title still does - Shay's "DEV MGMT · .claude"), then a lone window in
+        // that instance. Every one of them is a guess, and every one is replaced the moment
+        // that window is focused and identifies itself for real.
+        var match = windows.FirstOrDefault(c => SafeIsMatch(c.Title, ws.TitlePattern))
+                 ?? (leaf.Length > 0
+                        ? windows.FirstOrDefault(c => c.Title.Contains(leaf, StringComparison.OrdinalIgnoreCase))
+                        : null)
+                 ?? (windows.Count == 1 ? windows[0] : null);
         if (match == null)
         {
             LogService.Debug("bind", $"ws=\"{ws.DisplayTitle}\" no window of pid={conn.OwnerPid} " +
-                                     $"identifies itself ({windows.Count} candidates) — bind left alone");
+                                     $"identifies itself ({windows.Count} candidates) - bind left alone");
             return;
         }
         if (match.Hwnd == ws.Hwnd) return;
-        // A window belongs to one card. If some other card already holds it, leave both
-        // alone rather than passing the window back and forth on every click.
-        if (Vm.FindByHwnd(match.Hwnd) is { } other && other != ws) return;
 
-        LogService.Info("bind", $"ws=\"{ws.DisplayTitle}\" re-bound to the window holding the session " +
-                                $"(window-pid={conn.OwnerPid}, title=\"{match.Title}\")");
+        LogService.Info("bind", $"ws=\"{ws.DisplayTitle}\" re-bound by title, its connector's window is " +
+                                $"not identified yet (window-pid={conn.OwnerPid}, title=\"{match.Title}\")");
         Bind(ws, match.Hwnd, match.Title, match.ProcessName);
     }
 

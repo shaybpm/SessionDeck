@@ -53,9 +53,18 @@ public sealed class VscodeConnection
     /// command goes to when several share a folder.</summary>
     public DateTime LastFocusedAt { get; set; }
 
-    /// <summary>Process that owns this connector's VSCode WINDOW (the extension host's
-    /// parent). Resolved once on connect; 0 when it couldn't be read.</summary>
+    /// <summary>The VSCode INSTANCE this connector belongs to (the extension host's parent,
+    /// which is that instance's Electron main process). Resolved once on connect; 0 when it
+    /// couldn't be read. It does NOT identify the window - every window of one instance
+    /// reports this same pid, see Hwnd below.</summary>
     public int OwnerPid { get; set; }
+
+    /// <summary>The OS window this connector lives in, or IntPtr.Zero while it is still
+    /// unknown. Learned by focus correlation (MainWindow.CorrelateConnectorWindow), because
+    /// neither the pid nor the title can produce it: all windows of one VSCode instance
+    /// share one pid, two windows on one folder share one title, and a window with a custom
+    /// `window.title` matches no title pattern at all.</summary>
+    public IntPtr Hwnd { get; set; }
 
     internal VscodeConnection(StreamWriter writer) => _writer = writer;
 

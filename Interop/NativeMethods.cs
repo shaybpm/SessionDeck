@@ -156,6 +156,12 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+    /// <summary>The window the user is actually in right now. Paired with the extension's
+    /// own "my window has focus" report, this is what identifies WHICH VSCode window a
+    /// connector lives in - no pid can (see GetParentProcessId below).</summary>
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
     // ---- process parentage (which VSCode window an extension host belongs to) ----
 
     [StructLayout(LayoutKind.Sequential)]
@@ -182,9 +188,15 @@ public static class NativeMethods
 
     private const int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
-    /// <summary>Parent process id, or 0 if it can't be read. The VSCode extension host is
-    /// a child of the process that owns the window, which is the only way to tell WHICH
-    /// window a connector belongs to — the extension can't see its own HWND.</summary>
+    /// <summary>Parent process id, or 0 if it can't be read.
+    ///
+    /// For a VSCode extension host this resolves the VSCode INSTANCE, not the window: the
+    /// host is a utility child of the Electron MAIN process, and every window of that
+    /// instance reports that same main process as its own owner. Measured 22-08-2026: four
+    /// windows and four extension hosts, one pid (53380) for all eight. It looked like a
+    /// window id on 21-08 only because the second window was a second INSTANCE with its
+    /// own main process. Window identity comes from focus correlation instead
+    /// (MainWindow.CorrelateConnectorWindow); this still separates instances.</summary>
     public static int GetParentProcessId(int pid)
     {
         if (pid <= 0) return 0;
