@@ -440,6 +440,42 @@ public partial class MainWindow : Window
     {
         Vm.Workspaces.Remove(ws);
         UpdateEmptyHint();
+        QueueSave();   // a removal that is not written is undone by the next restart
+    }
+
+    /// <summary>Cards nobody ever worked in: the residue of the hook's cwd route creating one
+    /// per folder a runner happened to stand in (see ResolveOrCreateWorkspace). The gate there
+    /// stops new ones; this clears what accumulated before it — 230 of 297 cards on Shay's
+    /// deck, folders like `system32`, `chapters` and four separate `scratchpad`s.
+    ///
+    /// Every condition has to hold, and each one is there to protect a card that only LOOKS
+    /// like residue: no usage stamp at all (after schema 4 that means no real session has ever
+    /// run here), nothing but machine sessions on it, nothing the user typed or chose, no live
+    /// window, and not hidden — hiding is a decision he made about that card, so a hidden card
+    /// is left exactly where he put it. What this can still take is a card he added by picking
+    /// a folder and then never opened a session in; that costs him picking the folder again,
+    /// which is why the verb dry-runs by default and every removal is logged by name.</summary>
+    public List<string> PruneGhostWorkspaces(bool apply)
+    {
+        var doomed = Vm.Workspaces.Where(w =>
+            !w.Hidden &&
+            w.LastUsedAt == null && w.UseCount == 0 &&
+            !w.Sessions.Any(s => !IsMachineSession(s)) &&
+            !w.HasOpenSessions &&
+            w.State != BindState.Connected &&
+            w.CustomTitle == null && w.CustomColor == null && w.Description.Length == 0).ToList();
+        if (!apply) return doomed.Select(w => w.DisplayTitle).ToList();
+        foreach (var w in doomed)
+        {
+            LogService.Info("config", $"pruned ghost card \"{w.DisplayTitle}\" path=\"{w.Path}\" " +
+                                      $"sessions={w.Sessions.Count}");
+            Vm.Workspaces.Remove(w);
+        }
+        UpdateEmptyHint();
+        ApplyDeckVisibility();
+        QueueSave();
+        LogService.Info("config", $"pruned {doomed.Count} ghost card(s); {Vm.Workspaces.Count} left");
+        return doomed.Select(w => w.DisplayTitle).ToList();
     }
 
     public void ToggleHideWorkspace(WorkspaceViewModel ws)
@@ -1460,15 +1496,8 @@ public partial class MainWindow : Window
             return ($"session {sessionId} restarted in \"{fw.DisplayTitle}\"", true);
         }
 
-        // Transcript first, cwd second: the cwd in a hook payload is wherever the session
-        // happens to be standing right now, which is not always where it lives.
-        var ws = WorkspaceForTranscript(info.Transcript);
-        if (ws == null)
-        {
-            ws = ResolveOrCreateWorkspace(workspaceArg, out string? err);
-            if (ws == null) return (err!, false);
-        }
-
+        // Built before the workspace is resolved, because what the session IS decides whether
+        // it is allowed to bring a new card into existence (see ResolveOrCreateWorkspace).
         var session = new SessionViewModel
         {
             SessionId = sessionId,
@@ -1477,6 +1506,16 @@ public partial class MainWindow : Window
             StartedAt = DateTime.Now,
         };
         ApplyHookInfo(session, info);
+
+        // Transcript first, cwd second: the cwd in a hook payload is wherever the session
+        // happens to be standing right now, which is not always where it lives.
+        var ws = WorkspaceForTranscript(info.Transcript);
+        if (ws == null)
+        {
+            ws = ResolveOrCreateWorkspace(workspaceArg, out string? err, !IsMachineSession(session));
+            if (ws == null) return (err!, false);
+        }
+
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
         ws.Sessions.Insert(0, session);
@@ -1529,7 +1568,18 @@ public partial class MainWindow : Window
 
     /// <summary>Workspace resolution for hooks (decision 21.4 — cwd is the safety net):
     /// by path → by name (adopting the path into a pathless workspace) → auto-create.</summary>
-    private WorkspaceViewModel? ResolveOrCreateWorkspace(string workspaceArg, out string? error)
+    /// <param name="mayCreate">False when the session asking is the machine's own (see
+    /// IsMachineSession): an EXISTING card still takes it — a wave dispatched into a repo the
+    /// user has a card for belongs on that card — but it may no longer bring a new one into
+    /// existence. Route 4 of decision 21 (the hook's cwd) is the only card-creating route with
+    /// no human behind it, and it was creating one per folder a runner happened to stand in:
+    /// `bpm-port-check` from a session that lived 35 seconds, four different `scratchpad`s,
+    /// `system32` from the task that runs there twice an hour. 230 of 297 cards on Shay's deck
+    /// (01-09-2026) came from that, and every one of them was a card whose sessions the deck
+    /// then deleted as worthless. A genuine session in a genuinely new folder is not affected
+    /// for long: it stops being a ghost on its first real event, and the recreate path in
+    /// SetSessionStatus creates the card then, a second later.</param>
+    private WorkspaceViewModel? ResolveOrCreateWorkspace(string workspaceArg, out string? error, bool mayCreate = true)
     {
         error = null;
         if (string.IsNullOrWhiteSpace(workspaceArg))
@@ -1552,6 +1602,11 @@ public partial class MainWindow : Window
                 RefreshMetadata(byName);
                 QueueSave();
                 return byName;
+            }
+            if (!mayCreate)
+            {
+                error = $"no card for \"{workspaceArg}\" and this session cannot create one";
+                return null;
             }
             var (created, err) = AddWorkspaceFromPath(workspaceArg);
             if (created == null) error = err;
@@ -1608,13 +1663,8 @@ public partial class MainWindow : Window
             // workspace. Every hook event carries cwd — recreate instead of dropping updates.
             // Same order as StartSession: the transcript decides, cwd is the fallback.
             var host = WorkspaceForTranscript(info.Transcript);
-            if (host == null)
-            {
-                if (workspaceArg.Length == 0)
-                    return ($"unknown session id {sessionId} (was 'session start' called?)", false);
-                host = ResolveOrCreateWorkspace(workspaceArg, out string? err);
-                if (host == null) return (err!, false);
-            }
+            // Built before the card is resolved, for the reason StartSession builds its own
+            // there: what the session IS decides whether it may create a card.
             var recreated = new SessionViewModel
             {
                 SessionId = sessionId,
@@ -1622,6 +1672,13 @@ public partial class MainWindow : Window
                 StartedAt = DateTime.Now,
             };
             ApplyHookInfo(recreated, info);
+            if (host == null)
+            {
+                if (workspaceArg.Length == 0)
+                    return ($"unknown session id {sessionId} (was 'session start' called?)", false);
+                host = ResolveOrCreateWorkspace(workspaceArg, out string? err, !IsMachineSession(recreated));
+                if (host == null) return (err!, false);
+            }
             LearnTranscriptDir(host, info);
             host.Sessions.Insert(0, recreated);
             AfterSessionChange(host, recreated);
@@ -1772,9 +1829,19 @@ public partial class MainWindow : Window
     ///     from a ghost: a genuine one earns its bump on its first real event, a second later.
     /// Clicking a card in the deck still counts (FocusWorkspace) — that is the user using it,
     /// with no session involved at all.</summary>
+    /// <summary>The machine's own activity rather than the user's: a headless run, or a
+    /// session that has written no transcript and carries no title — a spare id VSCode mints
+    /// per launch, or a run that died before writing anything. Both classes are ones the deck
+    /// already refuses to DISPLAY, which is what makes them safe to ignore elsewhere: they can
+    /// neither stamp a card as used (TouchUsage) nor bring one into existence
+    /// (ResolveOrCreateWorkspace). Re-checked per event rather than decided once: at
+    /// `session start` nothing is written yet and a real session cannot be told from a ghost,
+    /// so a genuine one stops matching this a second later, on its first real event.</summary>
+    private static bool IsMachineSession(SessionViewModel s) => s.IsHeadless || NeverMaterialized(s);
+
     private static void TouchUsage(WorkspaceViewModel ws, SessionViewModel? s)
     {
-        if (s == null || s.IsHeadless || NeverMaterialized(s)) return;
+        if (s == null || IsMachineSession(s)) return;
         ws.LastUsedAt = DateTime.Now;
         if (s.CountedForUsage) return;
         s.CountedForUsage = true;
