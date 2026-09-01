@@ -149,12 +149,14 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
 
     // ---- usage, for the deck sort order (feature 09-08-2026) ----
 
-    /// <summary>Last session event on this card, or the last time the user opened it from
-    /// the deck. Persisted; seeded from the card's sessions for a config written before it
-    /// existed. Sorting only — no notification needed, the sort moves the item itself.</summary>
+    /// <summary>Last event from a session a person opened on this card, or the last time the
+    /// user opened the card from the deck. A headless run and a ghost do not count —
+    /// MainWindow.TouchUsage owns that rule. Persisted; rebuilt from the card's sessions at
+    /// schema 4. Sorting only — no notification needed, the sort moves the item itself.</summary>
     public DateTime? LastUsedAt { get; set; }
 
-    /// <summary>Sessions ever opened on this card. Persisted, and only ever incremented.</summary>
+    /// <summary>Sessions a person has opened on this card. Persisted, and only ever
+    /// incremented — once per session, by TouchUsage.</summary>
     public int UseCount { get; set; }
 
     // ---- live window binding (engine reuse from stage A/B) ----

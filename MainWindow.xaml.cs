@@ -154,6 +154,7 @@ public partial class MainWindow : Window
         _customToggleConfigs = config.CustomToggles;
         LoadCustomToggles();
 
+        int usageRebuilt = 0;
         foreach (var wc in config.Workspaces)
         {
             var ws = new WorkspaceViewModel
@@ -187,6 +188,8 @@ public partial class MainWindow : Window
                     PermissionMode = sc.PermissionMode,
                     Entrypoint = sc.Entrypoint,
                     PrintMode = sc.PrintMode,
+                    // Already in the card's persisted UseCount; see TouchUsage.
+                    CountedForUsage = true,
                     DispatchedBy = sc.DispatchedBy,
                     EndReason = sc.EndReason,
                     LastEventAt = sc.LastEventAt,
@@ -222,17 +225,45 @@ public partial class MainWindow : Window
                 ws.Sessions.Add(svm);
             }
             // Seeded from what is already on the card, so the first "last used" / "most used"
-            // sort is meaningful on a config written before these two fields existed.
-            ws.UseCount = wc.UseCount > 0 ? wc.UseCount : wc.Sessions.Count;
-            ws.LastUsedAt = wc.LastUsedAt ?? ws.Sessions
+            // sort is meaningful on a config written before these two fields existed — and
+            // REBUILT from it once, at schema 4, because everything written before then counted
+            // the machine's own activity as use (see TouchUsage): folders a scheduled runner
+            // passes through held the top of both orders, and 230 of 297 cards carried a stamp
+            // no session of theirs could explain. Rebuilt rather than adjusted, because there
+            // is no way to tell how much of a given number was real.
+            //
+            // What the rebuild costs, knowingly: the count is capped by what retention kept
+            // (decision 12), so heavily-used cards land flat at first and separate again as
+            // real sessions accumulate. That is the trade this comment used to argue against
+            // — it is taken here only because the persisted alternative was measurably worse
+            // than flat, and only once. The stamp loses nothing: for a card holding any real
+            // session, its newest one IS the last time the card was used, and a card holding
+            // none has no honest stamp to keep.
+            var realSessions = ws.Sessions.Where(s => !s.IsHeadless).ToList();
+            DateTime? lastRealEvent = realSessions
                 .Select(s => (DateTime?)(s.LastEventAt ?? s.EndedAt ?? s.StartedAt))
                 .Max();
+            if (config.SchemaVersion < 4)
+            {
+                if (wc.LastUsedAt != lastRealEvent || wc.UseCount != realSessions.Count) usageRebuilt++;
+                ws.UseCount = realSessions.Count;
+                ws.LastUsedAt = lastRealEvent;
+            }
+            else
+            {
+                ws.UseCount = wc.UseCount > 0 ? wc.UseCount : realSessions.Count;
+                ws.LastUsedAt = wc.LastUsedAt ?? lastRealEvent;
+            }
             foreach (var s in ws.Sessions) RefreshPhantom(s);
             ws.RefreshSessionVisibility();
             SortSessions(ws);
             RefreshMetadata(ws);
             Vm.Workspaces.Add(ws);
         }
+        if (usageRebuilt > 0)
+            LogService.Info("config", $"schema<4: rebuilt the usage stamp on {usageRebuilt} of " +
+                $"{config.Workspaces.Count} cards — headless and never-materialized sessions no " +
+                "longer count as use");
         RehomeMisfiledSessions();
         ApplyDeckVisibility();
         SortWorkspaces();
@@ -1002,8 +1033,10 @@ public partial class MainWindow : Window
 
     /// <summary>Actives (bound window / live session) float to the top (decision 16), and
     /// below them the order the user picked: A→Z (the original and the default), last used,
-    /// or most used. Active-first is kept in every mode — a card that is running right now is
-    /// the most recently used one anyway, so the two rules never actually disagree.
+    /// or most used. Active-first is kept in every mode, and it CAN disagree with recency: a
+    /// card whose window is open but which has not been touched in a week still outranks one
+    /// used ten minutes ago whose window is closed. Deliberate — what is on screen now is
+    /// what the deck is for — and the recency order continues immediately below it.
     /// Stable in-place sort via Move so DWM thumbnails survive.</summary>
     public void SortWorkspaces()
     {
@@ -1418,7 +1451,7 @@ public partial class MainWindow : Window
             LearnTranscriptDir(fw, info);
             RefreshPhantom(fs);
             fw.RefreshSessionVisibility();
-            AfterSessionChange(fw);
+            AfterSessionChange(fw, fs);
             // Logged because it was not: this path rewrote a card's status silently, so the
             // damage above was invisible in the diagnostic log and had to be reconstructed
             // from the config file and two transcripts.
@@ -1446,10 +1479,9 @@ public partial class MainWindow : Window
         ApplyHookInfo(session, info);
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
-        ws.UseCount++;
         ws.Sessions.Insert(0, session);
         ws.RefreshSessionVisibility();
-        AfterSessionChange(ws);
+        AfterSessionChange(ws, session);
         return ($"session {sessionId} started in \"{ws.DisplayTitle}\" [idle]", true);
     }
 
@@ -1591,9 +1623,8 @@ public partial class MainWindow : Window
             };
             ApplyHookInfo(recreated, info);
             LearnTranscriptDir(host, info);
-            host.UseCount++;
             host.Sessions.Insert(0, recreated);
-            AfterSessionChange(host);
+            AfterSessionChange(host, recreated);
             return ($"session {sessionId} recreated in \"{host.DisplayTitle}\" [{SessionStatusNames.ToName(status)}]", true);
         }
         var (ws, session) = found;
@@ -1658,7 +1689,7 @@ public partial class MainWindow : Window
             // the tab mid-turn and our TabTitle is stale). Rescan the transcript now; the
             // scan callback re-runs the correlation and acknowledges (issue 2026-07-20).
             RefreshTranscriptTitles();
-        AfterSessionChange(ws);
+        AfterSessionChange(ws, session);
         return keepHe
             ? ($"session {sessionId} stays he (ignored {SessionStatusNames.ToName(status)})", true)
             : ($"session {sessionId} → {SessionStatusNames.ToName(status)}", true);
@@ -1691,7 +1722,7 @@ public partial class MainWindow : Window
         {
             LogService.Info("status", $"session={sessionId} ended (never materialized — removed)");
             ws.Sessions.Remove(session);
-            AfterSessionChange(ws);
+            AfterSessionChange(ws, session);
             return ($"session {sessionId} ended (empty — removed)", true);
         }
         LogService.Info("status", $"session={sessionId} ended{(info.Reason is { Length: > 0 } r ? $" ({r})" : "")}");
@@ -1704,7 +1735,7 @@ public partial class MainWindow : Window
             ws.Sessions.Remove(extra);
 
         ws.RefreshSessionVisibility();
-        AfterSessionChange(ws);
+        AfterSessionChange(ws, session);
         return ($"session {sessionId} ended", true);
     }
 
@@ -1724,9 +1755,35 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AfterSessionChange(WorkspaceViewModel ws)
+    /// <summary>Usage, for the deck's "last used" and "most used" orders — bumped only by a
+    /// session a PERSON is sitting in front of.
+    ///
+    /// Every session event used to count, which put the machine's own activity at the top of
+    /// both orders: a scheduled runner opens a session in whatever folder it happens to stand
+    /// in, twice an hour, so `system32` ranked 6th by last-used and 2nd by most-used with 1202
+    /// "uses" — above every real project, and 230 of the 297 cards carried a usage stamp no
+    /// session of theirs could explain (Shay, 01-09-2026: the order "does not really match what
+    /// actually happened"). Two exclusions, and both of them are sessions the deck already
+    /// refuses to DISPLAY, which is what made the ranking unreadable rather than merely wrong:
+    ///   - a headless run (`claude -p` / SDK), hidden by ShowHeadlessSessions;
+    ///   - a session with no transcript and no title — a spare id VSCode mints per launch, or
+    ///     a run that died before writing anything. Re-checked on every event rather than once
+    ///     at `session start`, where nothing is written yet and a real session cannot be told
+    ///     from a ghost: a genuine one earns its bump on its first real event, a second later.
+    /// Clicking a card in the deck still counts (FocusWorkspace) — that is the user using it,
+    /// with no session involved at all.</summary>
+    private static void TouchUsage(WorkspaceViewModel ws, SessionViewModel? s)
     {
-        ws.LastUsedAt = DateTime.Now;   // every session event is this card being used
+        if (s == null || s.IsHeadless || NeverMaterialized(s)) return;
+        ws.LastUsedAt = DateTime.Now;
+        if (s.CountedForUsage) return;
+        s.CountedForUsage = true;
+        ws.UseCount++;
+    }
+
+    private void AfterSessionChange(WorkspaceViewModel ws, SessionViewModel? trigger)
+    {
+        TouchUsage(ws, trigger);
         ws.RefreshSessionVisibility();
         SortSessions(ws);
         SortWorkspaces();
@@ -2615,6 +2672,9 @@ public partial class MainWindow : Window
         SyncSortMenu();
         SortWorkspaces();
         QueueSave();
+        // Logged because it was not: a report that the order looked wrong (Shay, 01-09-2026)
+        // could not be checked against which order was actually chosen.
+        LogService.Info("config", $"deck sort → {ModeNames.ToName(sort)}");
         SetStatus(sort switch
         {
             DeckSort.Recent => "Cards ordered by last used",

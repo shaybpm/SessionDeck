@@ -176,14 +176,17 @@ public class WorkspaceConfig
     public string? CustomColor { get; set; }         // null = auto (Peacock / default)
     public bool Hidden { get; set; }
     public string? TranscriptDir { get; set; }       // learned from hooks (stage D)
-    /// <summary>Last time a session on this card reported anything, or the user opened it
-    /// from the deck — the key behind the "last used" order. Persisted because the sessions
-    /// it was derived from are pruned by retention, so the deck would otherwise forget that
-    /// a card was busy last week the moment its 21st session closed.</summary>
+    /// <summary>Last time a session A PERSON opened reported anything on this card, or the
+    /// user opened the card from the deck — the key behind the "last used" order. Headless
+    /// runs and never-materialized ghosts are excluded, and were the whole reason the order
+    /// stopped matching what the user had done (MainWindow.TouchUsage). Persisted because the
+    /// sessions it was derived from are pruned by retention, so the deck would otherwise
+    /// forget that a card was busy last week the moment its 21st session closed.</summary>
     public DateTime? LastUsedAt { get; set; }
-    /// <summary>How many sessions have ever been opened on this card — the "most used"
-    /// order. Counting the sessions still on the card would top out at the retention limit
-    /// and rank every heavily-used workspace the same.</summary>
+    /// <summary>How many sessions a person has ever opened on this card — the "most used"
+    /// order, same exclusions as above. Counting the sessions still on the card would top out
+    /// at the retention limit and rank every heavily-used workspace the same, which is why
+    /// this is a running total and not derived on the fly.</summary>
     public int UseCount { get; set; }
     public List<SessionConfig> Sessions { get; set; } = new();
 }
@@ -276,7 +279,8 @@ public class WindowBounds
 
 public class AppConfig
 {
-    public int SchemaVersion { get; set; } = 3;   // 3: `done` moved green→purple, `he` took green
+    public int SchemaVersion { get; set; } = 4;   // 3: `done` moved green→purple, `he` took green
+                                                  // 4: usage stamps rebuilt — machine activity stopped counting as use
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;
