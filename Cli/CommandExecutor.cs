@@ -102,6 +102,17 @@ public sealed class CommandExecutor
 
     private PipeResponse Remove(ParsedArgs a)
     {
+        if (a.Flags.Contains("ghosts"))
+        {
+            bool apply = a.Flags.Contains("apply");
+            var pruned = _window.PruneGhostWorkspaces(apply);
+            if (pruned.Count == 0) return Ok("no ghost cards found");
+            var sb = new StringBuilder();
+            sb.AppendLine(apply ? $"removed {pruned.Count} ghost card(s):"
+                                : $"{pruned.Count} ghost card(s) would be removed (pass --apply):");
+            foreach (var name in pruned) sb.AppendLine("  " + name);
+            return Ok(sb.ToString().TrimEnd());
+        }
         var (ws, err) = ResolveTarget(a);
         if (ws == null) return Err(err!);
         _window.RemoveWorkspace(ws);

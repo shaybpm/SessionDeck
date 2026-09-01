@@ -69,6 +69,7 @@ public static class CliClient
         sessiondeck list [--all]                  workspaces + sessions (--all includes closed)
         sessiondeck add <folder path>             add a workspace to the deck
         sessiondeck remove <target>
+        sessiondeck remove --ghosts [--apply]     cards no session of a person's ever ran in; lists them unless --apply
         sessiondeck set <target> [--title "..."] [--desc "..."] [--color <c>]   empty value = auto
         sessiondeck focus <target>                activate the workspace's window in place
         sessiondeck pin <target>                  move the window to the Stage + activate
