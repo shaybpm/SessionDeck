@@ -124,6 +124,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// <summary>Discovered from the transcripts folder (expanded view) — not persisted.</summary>
     public bool Historical { get; init; }
 
+    /// <summary>This session has already been counted in its card's UseCount. Runtime only,
+    /// and true for every session restored from config: the count is a lifetime total the
+    /// card persists, so a restored session must not be counted twice on its next event.
+    /// Not a persisted field because that is the only thing it has to prevent.</summary>
+    public bool CountedForUsage { get; set; }
+
     private bool _phantom;
     /// <summary>An idle session whose transcript file was never created — an empty
     /// conversation VSCode spins up on window load (SessionStart source=startup). Hidden
