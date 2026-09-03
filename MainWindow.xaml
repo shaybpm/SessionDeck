@@ -268,13 +268,13 @@
                 <Button DockPanel.Dock="Right" Content="Run" Click="RunTask_Click"
                         Background="#FF3A6EA5" Foreground="White" BorderThickness="0"
                         Padding="12,3" Margin="6,0,0,0" Cursor="Hand"
-                        ToolTip="Open a session for that task — the same thing its card's “New session” button does. Ctrl+click opens a coordinator in its short form."/>
+                        ToolTip="Open a session for that task — the same thing its card's “New session” button does. On the .claude card the modifier picks the account: none = 🟪, Ctrl = 🟩, Alt = 🟧."/>
                 <!-- A task number is ASCII and must not follow the UI's direction. -->
                 <TextBox x:Name="RunTaskBox" VerticalContentAlignment="Center" FontSize="13"
                          Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF444444"
                          CaretBrush="White" Padding="6,3" FlowDirection="LeftToRight"
                          KeyDown="RunTaskBox_KeyDown"
-                         ToolTip="A task number, e.g. 4.13 or 4.13.19. Enter runs it. For a coordinator (4.0) add “fast” or “מהיר”, or hold Ctrl, to open it in its short form."/>
+                         ToolTip="A task number, e.g. 4.13 or 4.13.19. Enter runs it. Add “fast”/“מהיר” for a coordinator's short form, and a group word (“green”/“ירוק”) — or hold its modifier — to pick which account it opens in."/>
             </DockPanel>
             <DockPanel Grid.Column="0" LastChildFill="True">
                 <TextBlock x:Name="SearchScopeLabel" DockPanel.Dock="Left" Text="🔍 Sessions"

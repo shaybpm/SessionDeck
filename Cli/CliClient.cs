@@ -87,6 +87,8 @@ public static class CliClient
         sessiondeck tasks [--file "<path>.json" | --off | --page on|off]   external tasks panel (T-0116):
                                                   no args = show state; --file sets the JSON, --off disables,
                                                   --page opens/closes the full page
+        sessiondeck groups                        the VSCode instances a new session can be aimed at
+                                                  (one per Claude account) and whether each is reachable
         sessiondeck help
 
         session commands (called by the Claude Code hooks):
@@ -99,7 +101,10 @@ public static class CliClient
                                                    the next Stop replaces it with the snapshot
         sessiondeck session end    --id <sid> [--reason <r>]
         sessiondeck session open   --id <sid>          focus VSCode + open/resume the session's tab
-        sessiondeck session new    <target>            open a NEW Claude conversation tab in the workspace
+        sessiondeck session new    <target> [--prompt "..."] [--group <id>]
+                                                       open a NEW Claude conversation tab in the workspace;
+                                                       --group picks WHICH VSCode instance, i.e. which
+                                                       Claude account (see: sessiondeck groups)
         sessiondeck session list   [--workspace <name>] [--all]
         all session commands also accept: --transcript <path> --mode <permission_mode>
                                           --dispatcher <sid>  the session that launched this one

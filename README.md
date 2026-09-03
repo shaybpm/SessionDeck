@@ -44,6 +44,25 @@ If the file also describes the tree its tasks came from, the page draws a two-co
 
 SessionDeck only ever reads the file, and reloads within a second of any change. The producer owns the content, the ordering and the status colours — the panel is deliberately agnostic about where your tasks come from. The full contract is behind the dialog's **📋 Copy spec** button. Leave the path empty and the feature does not exist.
 
+### Session groups: which window a new session opens in
+
+One folder can be open in several VSCode instances at once - each with its own
+`--user-data-dir`, so each can be signed into a different Claude account. They share a single
+card, because a card is a folder, and until now a new session went to whichever of them you
+focused last: invisible, and it moves under you.
+
+A **session group** names one of those instances and gives it a modifier. Hold it as you click
+*+ New session* or a task, and the session opens in that instance - that account - every time.
+No modifier is a group too, so the plain click has a fixed home rather than a guess. In the
+**Run task** box the same choice is a word after the number (`4.0 green`, `4.0 ירוק`).
+
+Groups are config, under `SessionGroups` in `%APPDATA%\SessionDeck\config.json`: an id, the
+modifier, a marker that appears in that instance's window titles (a coloured square in
+`window.title` is ideal - one per instance, and nothing else carries it), the folder it applies
+to, and optionally its `--user-data-dir`, which lets the deck start the instance when it is not
+running. `sessiondeck groups` prints them with the state of each. No groups configured, or a
+card no group names: nothing changes.
+
 ### Toolbar toggles
 
 Toggles are flags for *your* processes. Each one is a toolbar button whose 1/0 state is written to a file any script can read, so you can gate a watcher, a deploy or a hook on a click. SessionDeck neither knows nor cares what a toggle drives.
@@ -132,6 +151,7 @@ sessiondeck stage --monitor <n> --half left|right | --full | --rect x,y,w,h
 sessiondeck zone  --monitor <n> --half left|right | --quarter left|right | --custom left|right [--size 2/7|40%|0.4] | --full | --off
 sessiondeck toggle list | get <id> | set <id> on|off
 sessiondeck tasks [--file <path> | --off]
+sessiondeck groups                       # the VSCode instances a new session can be aimed at
 sessiondeck status
 sessiondeck reconcile                    # close sessions whose tab or window is gone, now
 sessiondeck quit                         # close the running app cleanly
@@ -142,6 +162,7 @@ sessiondeck session start  --id <session_id> --workspace <name> [--title "..."]
 sessiondeck session status --id <session_id> --state working|waiting|done|he|error|idle
 sessiondeck session open   --id <session_id>
 sessiondeck session end    --id <session_id>
+sessiondeck session new    <target> [--prompt "..."] [--group <id>]
 sessiondeck session list   [--workspace <name>] [--all]
 ```
 

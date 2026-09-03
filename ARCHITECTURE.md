@@ -143,6 +143,16 @@ that currently has focus. Commands (`openSession`, `newSession`) go to the windo
 already holds the session's tab, else the window last focused. Before that, the card's
 window bind is moved onto the same window.
 
+**Which INSTANCE, when you get to choose.** Several instances holding one folder is not only a
+thing to survive - on this machine it is how the accounts are separated, one Claude login per
+`--user-data-dir`. `SessionGroups` (config) names each instance by a marker in its window titles
+and binds it to a modifier, and `NewSessionInVscode` takes the resulting group instead of asking
+`FindConnector` to guess. A group is never approximated: with its instance not running the deck
+starts it (`LaunchGroup`, with every `VSCODE_*`/`ELECTRON_*` variable stripped so `Code.exe` does
+not come up as plain Node) and parks the request under the group's id, so the next connector to
+appear cannot claim it unless it is the right one. Opening or resuming an EXISTING session is
+untouched - it goes where its tab already is.
+
 **Which OS window is a connector in?** The extension cannot see its own `HWND`, and the two
 obvious answers both fail. The TITLE cannot tell two windows on one folder apart and misses
 entirely when a window sets a custom `window.title`. The PID cannot help either: Electron

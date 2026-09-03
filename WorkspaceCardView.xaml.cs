@@ -256,9 +256,12 @@ public partial class WorkspaceCardView : UserControl
         if (Vm != null) Owner?.ToggleHideWorkspace(Vm);
     }
 
+    /// <summary>The modifier held here picks the VSCode instance on a card that has session
+    /// groups (Shay's three .claude accounts) and means nothing on any other card.</summary>
     private void NewSession_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.NewSessionInVscode(Vm);
+        if (Vm == null || Owner == null) return;
+        Owner.NewSessionInVscode(Vm, null, Owner.GroupForModifiers(Vm));
     }
 
     private void CloseWindow_Click(object sender, RoutedEventArgs e)

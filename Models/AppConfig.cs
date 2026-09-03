@@ -1,4 +1,6 @@
-﻿namespace SessionDeck.Models;
+﻿using System.IO;
+
+namespace SessionDeck.Models;
 
 // Order matters: ZoneModeCombo items are mapped by index cast (persistence is by name).
 public enum ZoneMode { Off, QuarterLeft, HalfLeft, HalfRight, QuarterRight, Full, CustomLeft, CustomRight }
@@ -240,6 +242,50 @@ public class StatusStyle
     public bool UntilAcknowledge { get; set; }       // blink stops (solid Color) after user click
 }
 
+/// <summary>One VSCode INSTANCE the deck can aim a new session at (Shay, 04-09-2026).
+///
+/// Several VSCode instances can hold the same folder open - Shay runs three on
+/// <c>C:\Users\Shay\.claude</c>, each with its own <c>--user-data-dir</c> so each can be
+/// signed into a different Claude account. Until now a new session went to whichever of them
+/// was focused last, which is invisible and flips under the user; a group makes the choice
+/// explicit and repeatable: hold the group's modifier, get that account.
+///
+/// A group is identified by a marker in its windows' titles, because nothing cheaper works.
+/// The pid of a window says which INSTANCE it belongs to and each of these IS its own
+/// instance, but a pid is not stable across a restart and there is nothing to write in a
+/// config file. The title is: Shay sets <c>window.title</c> per instance, so every window of
+/// one instance carries its coloured square, and no window of another does.</summary>
+public class SessionGroupConfig
+{
+    /// <summary>What the CLI's <c>--group</c> takes and the log prints. Stable; the name is
+    /// free to change.</summary>
+    public string Id { get; set; } = "";
+    /// <summary>Shown in the status bar when a session opens there.</summary>
+    public string Name { get; set; } = "";
+    /// <summary>The modifier combination that asks for this group: "", "ctrl", "alt",
+    /// "shift", or any of them joined by "+". "" is the group a plain click goes to.</summary>
+    public string Modifier { get; set; } = "";
+    /// <summary>A substring of this instance's window titles. Must appear in NO other
+    /// instance's - the coloured square of Shay's `window.title` is exactly that.</summary>
+    public string TitleMarker { get; set; } = "";
+    /// <summary>Only groups whose path matches the target card apply; empty = every card.
+    /// Without it a plain click on an ordinary repo card would ask for the default group and
+    /// find nothing.</summary>
+    public string WorkspacePath { get; set; } = "";
+    /// <summary>The instance's <c>--user-data-dir</c>. Set = the deck may LAUNCH the group
+    /// when it is not running; empty = a missing group falls back to the ordinary routing.
+    /// </summary>
+    public string UserDataDir { get; set; } = "";
+    /// <summary>The instance's <c>--extensions-dir</c>, when it shares one with another
+    /// instance (Shay's three do, so one install covers them all). Only used when launching.
+    /// </summary>
+    public string ExtensionsDir { get; set; } = "";
+    /// <summary>Words the Run box accepts after a task number to ask for this group, the same
+    /// way "fast"/"מהיר" already asks for a coordinator's short form. The id always works;
+    /// these are for the hand that is already in the box. Hebrew belongs here.</summary>
+    public List<string> Aliases { get; set; } = new();
+}
+
 /// <summary>A user-defined toolbar toggle (feature 2026-07-19). SessionDeck knows nothing
 /// about what a toggle controls — it only owns the flag: the current state is written to
 /// %APPDATA%\SessionDeck\toggles\&lt;id&gt; as "1"/"0" for any external process to read.
@@ -279,8 +325,38 @@ public class WindowBounds
 
 public class AppConfig
 {
-    public int SchemaVersion { get; set; } = 4;   // 3: `done` moved green→purple, `he` took green
+    /// <summary>The groups seeded once, on the schema-4→5 upgrade: the three VSCode instances
+    /// Shay keeps open on <c>C:\Users\Shay\.claude</c>, one per Claude account. The markers are
+    /// the coloured squares of each instance's own <c>window.title</c>, measured 04-09-2026.
+    /// A machine that has no such instances gets three groups that match no window and change
+    /// nothing — a group with no window behaves exactly like no group at all.</summary>
+    public static List<SessionGroupConfig> DefaultSessionGroups()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string claude = Path.Combine(home, ".claude");
+        string extensions = Path.Combine(home, ".vscode", "extensions");
+        SessionGroupConfig G(string id, string name, string modifier, string marker, string udd,
+                             string hebrew) => new()
+        {
+            Id = id,
+            Name = name,
+            Modifier = modifier,
+            TitleMarker = marker,
+            WorkspacePath = claude,
+            UserDataDir = Path.Combine(home, udd),
+            ExtensionsDir = extensions,
+            Aliases = new List<string> { hebrew },
+        };
+        return new List<SessionGroupConfig>
+        {
+            G("purple", "🟪 DEV MGMT",   "",     "🟪", ".vscode-mgmt",  "סגול"),
+            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", ".vscode-mgmt2", "ירוק"),
+            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", ".vscode-mgmt3", "כתום"),
+        };
+    }
+    public int SchemaVersion { get; set; } = 5;   // 3: `done` moved green→purple, `he` took green
                                                   // 4: usage stamps rebuilt — machine activity stopped counting as use
+                                                  // 5: SessionGroups seeded with the three .claude management instances
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;
@@ -318,6 +394,12 @@ public class AppConfig
     /// the toolbar's toolbar button opens the page anyway. The ⚙ menu brings it back.</summary>
     public bool ShowTasksStrip { get; set; }
     public List<CustomToggleConfig> CustomToggles { get; set; } = new();
+    /// <summary>The VSCode instances a new session can be aimed at by modifier
+    /// (<see cref="SessionGroupConfig"/>). Empty = the deck routes as it always did, to the
+    /// window focused last. Seeded once by the schema-5 migration with the three management
+    /// instances on this machine; edit or empty the list freely afterwards, it is never
+    /// re-seeded.</summary>
+    public List<SessionGroupConfig> SessionGroups { get; set; } = new();
     /// <summary>
     /// How long each tool may sit without a result before the deck reads it as an open
     /// permission dialog (issue 2026-07-20). The VSCode extension fires no Notification
