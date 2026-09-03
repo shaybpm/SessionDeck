@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using SessionDeck.Models;
 using SessionDeck.Services;
@@ -48,11 +48,12 @@ public sealed class CommandExecutor
                 "toggle" => Toggle(args),
                 "tasks" => Tasks(args),
                 "status" => Status(),
+                "reconcile" => Reconcile(),
                 "log" => LogCmd(args),
                 "activate" => Activate(),
                 "quit" => Quit(),
                 "snapshot" => Snapshot(args),   // internal: render the WPF tree to PNG (debug aid)
-                _ => Err($"unknown command '{args.Command}'. Available: list, add, remove, set, focus, pin, zone, stage, session, toggle, tasks, status, log, quit"),
+                _ => Err($"unknown command '{args.Command}'. Available: list, add, remove, set, focus, pin, zone, stage, session, toggle, tasks, status, reconcile, log, quit"),
             };
         }
         catch (Exception ex)
@@ -379,6 +380,15 @@ public sealed class CommandExecutor
         _window.ApplyZone(monitor, mode, customSize: size);
         string sizeSuffix = mode is ZoneMode.CustomLeft or ZoneMode.CustomRight ? $" {Vm.ZoneSize}" : "";
         return Ok($"zone: {ModeNames.ToName(mode)}{sizeSuffix} on monitor {monitor + 1}");
+    }
+
+    /// <summary>Same as the deck's ↻ button. Exposed on the CLI as well because that is
+    /// the only way to exercise it without clicking, and UI automation is not an option on
+    /// this machine — the manual-verify skill leans on it.</summary>
+    private PipeResponse Reconcile()
+    {
+        var (msg, ok) = _window.ReconcileNow();
+        return ok ? Ok(msg) : Err(msg);
     }
 
     private PipeResponse Status()
