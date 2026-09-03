@@ -133,6 +133,7 @@ sessiondeck zone  --monitor <n> --half left|right | --quarter left|right | --cus
 sessiondeck toggle list | get <id> | set <id> on|off
 sessiondeck tasks [--file <path> | --off]
 sessiondeck status
+sessiondeck reconcile                    # close sessions whose tab or window is gone, now
 sessiondeck quit                         # close the running app cleanly
 sessiondeck install-hooks [--settings <path>] [--dry-run]   # register the Claude Code hooks
 sessiondeck uninstall-hooks              # remove them (both run locally, no app needed)
