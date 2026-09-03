@@ -183,7 +183,7 @@
             <Button Content="+ New session" Click="NewSession_Click" Cursor="Hand"
                     HorizontalAlignment="Left" Padding="10,2" Margin="0,2,0,3"
                     Background="#FF2E4A66" Foreground="White" BorderThickness="0"
-                    ToolTip="Open a new Claude Code conversation in this workspace"/>
+                    ToolTip="Open a new Claude Code conversation in this workspace. Where session groups are configured (the .claude management windows), the modifier picks which one: none, Ctrl or Alt."/>
             <ItemsControl ItemsSource="{Binding Sessions}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>

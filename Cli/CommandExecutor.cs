@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
-        "prompt", "page", "dispatcher",
+        "prompt", "page", "dispatcher", "group",
     };
 
     private readonly MainWindow _window;
@@ -47,13 +47,14 @@ public sealed class CommandExecutor
                 "session" => Session(args),
                 "toggle" => Toggle(args),
                 "tasks" => Tasks(args),
+                "groups" => Groups(),
                 "status" => Status(),
                 "reconcile" => Reconcile(),
                 "log" => LogCmd(args),
                 "activate" => Activate(),
                 "quit" => Quit(),
                 "snapshot" => Snapshot(args),   // internal: render the WPF tree to PNG (debug aid)
-                _ => Err($"unknown command '{args.Command}'. Available: list, add, remove, set, focus, pin, zone, stage, session, toggle, tasks, status, reconcile, log, quit"),
+                _ => Err($"unknown command '{args.Command}'. Available: list, add, remove, set, focus, pin, zone, stage, session, toggle, tasks, groups, status, reconcile, log, quit"),
             };
         }
         catch (Exception ex)
@@ -227,8 +228,21 @@ public sealed class CommandExecutor
                 // (a protocol handler, a script, another tool) had no way to say what
                 // the session is for.
                 a.Options.TryGetValue("prompt", out var promptNew);
-                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew, promptNew);
-                return okNew ? Ok($"opening a new session in workspace {wsNew.Id}") : Err(msgNew);
+                // --group aims the session at ONE VSCode instance, i.e. at one Claude account
+                // (04-09-2026). This is the only way to say it from outside the window: the
+                // deck's own gesture is a modifier held at the click, and a script has no hand.
+                SessionGroupConfig? groupNew = null;
+                if (a.Options.TryGetValue("group", out var groupId))
+                {
+                    groupNew = _window.GroupById(groupId);
+                    if (groupNew == null)
+                        return Err($"unknown group '{groupId}' — see: sessiondeck groups");
+                }
+                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew, promptNew, groupNew);
+                return okNew
+                    ? Ok($"opening a new session in workspace {wsNew.Id}" +
+                         (groupNew == null ? "" : $" ({groupNew.Name})"))
+                    : Err(msgNew);
             }
             case "open":
             {
@@ -258,6 +272,23 @@ public sealed class CommandExecutor
             default:
                 return Err("session requires: start | status | end | open | new | list");
         }
+    }
+
+    /// <summary>`sessiondeck groups` — the VSCode instances a new session can be aimed at,
+    /// and whether each one is reachable right now. Read-only: the groups are config
+    /// (%APPDATA%\SessionDeck\config.json → SessionGroups), edited there, not here.</summary>
+    private PipeResponse Groups()
+    {
+        if (_window.SessionGroups.Count == 0)
+            return Ok("(no session groups — every new session goes to the window focused last)");
+        var sb = new StringBuilder();
+        foreach (var g in _window.SessionGroups)
+        {
+            string mod = g.Modifier.Length == 0 ? "(no modifier)" : g.Modifier;
+            sb.AppendLine($"{g.Id,-8} {mod,-12} {_window.GroupStateText(g),-34} {g.Name}");
+            sb.AppendLine($"{"",-8} marker \"{g.TitleMarker}\"  in {g.WorkspacePath}");
+        }
+        return Ok(sb.ToString().TrimEnd());
     }
 
     // ---- custom toggles (feature 2026-07-19) ----

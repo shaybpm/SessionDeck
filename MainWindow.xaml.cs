@@ -46,6 +46,9 @@ public partial class MainWindow : Window
     private Dictionary<string, StatusStyle> _statusStyles = AppConfig.DefaultStatusStyles();
     // Custom-toggle definitions are config-only (no UI editor) — round-tripped on save.
     private List<CustomToggleConfig> _customToggleConfigs = new();
+    /// <summary>Which VSCode instance a new session is aimed at, by modifier. See
+    /// <see cref="SessionGroupConfig"/>; empty = the routing the deck always had.</summary>
+    private List<SessionGroupConfig> _sessionGroups = new();
 
     // Live VSCode-extension connections (stage D). UI thread only (handlers are dispatched).
     private readonly List<VscodeConnection> _connectors = new();
@@ -53,8 +56,10 @@ public partial class MainWindow : Window
     // extension's first sync for that workspace, then the open command is flushed to it.
     // SessionId == null means "open a NEW session" (the + New Session button / a task);
     // Prompt rides along for new sessions opened from a task (T-0116).
-    private readonly Dictionary<string, (string? SessionId, string? Prompt, DateTime At)> _pendingOpens = new();
+    private readonly Dictionary<string, (string? SessionId, string? Prompt, string? Group, DateTime At)> _pendingOpens = new();
     private static readonly TimeSpan PendingOpenTtl = TimeSpan.FromSeconds(90);
+    /// <summary>A session parked for a group the deck had to START waits this long.</summary>
+    private static readonly TimeSpan GroupLaunchTtl = TimeSpan.FromMinutes(3);
     // ▶ clicked with no bound window: VSCode was launched, and the stage is applied
     // when the window binds (the launched window ignores clicks made before it existed).
     private readonly Dictionary<int, DateTime> _pendingPins = new();
@@ -152,6 +157,16 @@ public partial class MainWindow : Window
         Topmost = config.AlwaysOnTop;
 
         _customToggleConfigs = config.CustomToggles;
+        // Schema 5 seeds the three management instances once. A config saved before the field
+        // existed deserializes to an empty list, which is indistinguishable from "the user
+        // emptied it" — so the schema number, not the emptiness, is what decides.
+        _sessionGroups = config.SessionGroups;
+        if (config.SchemaVersion < 5 && _sessionGroups.Count == 0)
+        {
+            _sessionGroups = AppConfig.DefaultSessionGroups();
+            LogService.Info("config", "schema<5: seeded " + _sessionGroups.Count +
+                " session groups (" + string.Join(", ", _sessionGroups.Select(g => g.Id)) + ")");
+        }
         LoadCustomToggles();
 
         int usageRebuilt = 0;
@@ -349,6 +364,7 @@ public partial class MainWindow : Window
             DebugLogging = LogService.DebugEnabled,
             TasksFilePath = Vm.TasksFilePath,
             CustomToggles = _customToggleConfigs,
+            SessionGroups = _sessionGroups,
             Zone = new ZoneConfig { Monitor = Vm.ZoneMonitor, Mode = ModeNames.ToName(Vm.ZoneMode), Size = Vm.ZoneSize },
             Stage = new StageConfig
             {
@@ -2096,11 +2112,28 @@ public partial class MainWindow : Window
         string norm = WorkspaceMetadata.NormalizePath(conn.WorkspacePath);
         if (_pendingOpens.TryGetValue(norm, out var pending))
         {
-            _pendingOpens.Remove(norm);
-            if (DateTime.Now - pending.At < PendingOpenTtl)
+            // A request parked for a GROUP waits for that group. Any window of the folder may
+            // connect first - an extension host restarting in another instance does it several
+            // times an hour - and handing it the session would land the account exactly where
+            // the group was meant to prevent. It stays parked until its own group arrives or
+            // the TTL drops it.
+            bool mine = pending.Group == null ||
+                        GroupIdOf(conn, WindowEnumerator.GetCandidates()
+                                      .Where(w => WorkspaceMetadata.IsVsCodeProcess(w.ProcessName)).ToList(),
+                                  Vm.FindByPath(conn.WorkspacePath) is { } pw
+                                      ? GroupsFor(pw) : new List<SessionGroupConfig>()) == pending.Group;
+            // A group whose instance had to be launched from cold needs longer than a
+            // window that was already up: 90s is a reconnect budget, not a boot one.
+            bool expired = DateTime.Now - pending.At >=
+                           (pending.Group == null ? PendingOpenTtl : GroupLaunchTtl);
+            if (mine || expired) _pendingOpens.Remove(norm);
+            if (mine && !expired)
                 conn.TrySend(pending.SessionId is { } sid
                     ? new { Cmd = "openSession", SessionId = (string?)sid, Prompt = (string?)null, Maximize = Vm.OpenSessionMaximized }
                     : new { Cmd = "newSession", SessionId = (string?)null, Prompt = pending.Prompt, Maximize = Vm.OpenSessionMaximized });
+            else if (!mine && !expired)
+                LogService.Debug("group", $"pending session for \"{pending.Group}\" held — " +
+                                          $"pid={conn.Pid} window-pid={conn.OwnerPid} is not it");
         }
     }
 
@@ -2304,6 +2337,159 @@ public partial class MainWindow : Window
 
     private int ConnectorCount(WorkspaceViewModel ws) => ConnectorsFor(ws).Count;
 
+    // ---- session groups: WHICH VSCode instance a new session opens in ----
+    //
+    // Shay runs three VSCode instances on C:\Users\Shay\.claude, each with its own
+    // --user-data-dir so each can be signed into a different Claude account (04-09-2026).
+    // They are one card - a card is a folder - and FindConnector above sends a new session to
+    // whichever of them he focused last, which is invisible and flips under him. A group
+    // makes the choice a gesture: no modifier, Ctrl or Alt picks the account.
+
+    /// <summary>The groups that apply to this card: those pinned to its path, plus any that
+    /// name no path at all. A card no group names has none, and every path below behaves
+    /// exactly as it did before groups existed.</summary>
+    private List<SessionGroupConfig> GroupsFor(WorkspaceViewModel ws)
+    {
+        if (_sessionGroups.Count == 0 || ws.Path.Length == 0) return new List<SessionGroupConfig>();
+        string norm = WorkspaceMetadata.NormalizePath(ws.Path);
+        return _sessionGroups.Where(g => g.Id.Length > 0 &&
+            (g.WorkspacePath.Length == 0 ||
+             WorkspaceMetadata.NormalizePath(g.WorkspacePath) == norm)).ToList();
+    }
+
+    /// <summary>The group the keys held right now ask for on this card, or null when the card
+    /// has no groups. Called at the moment of the click: a modifier is only ever true while
+    /// the gesture is happening.</summary>
+    public SessionGroupConfig? GroupForModifiers(WorkspaceViewModel ws)
+    {
+        var groups = GroupsFor(ws);
+        if (groups.Count == 0) return null;
+        string held = HeldModifierName();
+        return groups.FirstOrDefault(g => NormalizeModifier(g.Modifier) == held);
+    }
+
+    /// <summary>A group by its id, whatever card it belongs to (the CLI's --group).</summary>
+    public SessionGroupConfig? GroupById(string id)
+        => _sessionGroups.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    public IReadOnlyList<SessionGroupConfig> SessionGroups => _sessionGroups;
+
+    /// <summary>Where a group stands right now, for `sessiondeck groups`: is its instance
+    /// running, and is its connector up. Three states, because they need three answers — a
+    /// session aimed at a group that is merely slow to connect is parked, one aimed at a group
+    /// that is not running gets it launched.</summary>
+    public string GroupStateText(SessionGroupConfig group)
+    {
+        var ws = group.WorkspacePath.Length > 0 ? Vm.FindByPath(group.WorkspacePath) : null;
+        if (ws != null && ConnectorInGroup(ws, group) is { } conn)
+            return $"connected (window-pid {conn.OwnerPid})";
+        if (GroupWindowIsOpen(group)) return "open, connector not up";
+        return group.UserDataDir.Length > 0 ? "not running (the deck can start it)" : "not running";
+    }
+
+    private static string HeldModifierName()
+    {
+        var m = System.Windows.Input.Keyboard.Modifiers;
+        var parts = new List<string>();
+        if ((m & System.Windows.Input.ModifierKeys.Control) != 0) parts.Add("ctrl");
+        if ((m & System.Windows.Input.ModifierKeys.Alt) != 0) parts.Add("alt");
+        if ((m & System.Windows.Input.ModifierKeys.Shift) != 0) parts.Add("shift");
+        return string.Join("+", parts);
+    }
+
+    /// <summary>"Ctrl", "control", "Alt+Ctrl" and "ctrl+alt" are all the same combination.</summary>
+    private static string NormalizeModifier(string spec)
+    {
+        var parts = spec.Split(new[] { '+', ' ', ',' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim().ToLowerInvariant())
+            .Select(p => p switch { "control" => "ctrl", "menu" => "alt", _ => p })
+            .Where(p => p is "ctrl" or "alt" or "shift")
+            .Distinct().ToList();
+        // Fixed order, so the spec's own order never matters.
+        return string.Join("+", new[] { "ctrl", "alt", "shift" }.Where(parts.Contains));
+    }
+
+    /// <summary>Which group a connector belongs to, by the marker in its window's title.
+    ///
+    /// The pid answers "which INSTANCE", and here that is exactly the question - each of these
+    /// groups IS a separate instance, with its own Electron main process. But a pid is not
+    /// something a config file can hold across a restart, so the durable name is the title
+    /// marker, and the pid is how we get from a connector to the titles to test it against.</summary>
+    private static string GroupIdOf(VscodeConnection conn, List<CandidateWindow> windows,
+                                    List<SessionGroupConfig> groups)
+    {
+        var titles = windows
+            .Where(w => (conn.Hwnd != IntPtr.Zero && w.Hwnd == conn.Hwnd) ||
+                        (conn.OwnerPid != 0 && WindowEnumerator.GetProcessId(w.Hwnd) == conn.OwnerPid))
+            .Select(w => w.Title).ToList();
+        if (titles.Count == 0) return "";
+        return groups.FirstOrDefault(g => g.TitleMarker.Length > 0 &&
+                   titles.Any(t => t.Contains(g.TitleMarker, StringComparison.Ordinal)))?.Id ?? "";
+    }
+
+    /// <summary>This group's live connector, or null when the instance is not running (or is
+    /// running with its extension host not yet connected).</summary>
+    private VscodeConnection? ConnectorInGroup(WorkspaceViewModel ws, SessionGroupConfig group)
+    {
+        var conns = ConnectorsFor(ws);
+        if (conns.Count == 0) return null;
+        var windows = WindowEnumerator.GetCandidates()
+            .Where(w => WorkspaceMetadata.IsVsCodeProcess(w.ProcessName)).ToList();
+        var groups = GroupsFor(ws);
+        return conns.LastOrDefault(c => GroupIdOf(c, windows, groups) == group.Id);
+    }
+
+    /// <summary>Is the group's instance on screen at all? Separates "not running" (launch it)
+    /// from "running, its connector is not up yet" (wait for it) - launching over a window
+    /// that already exists would hand him a fourth instance he never asked for.</summary>
+    private static bool GroupWindowIsOpen(SessionGroupConfig group)
+        => group.TitleMarker.Length > 0 && WindowEnumerator.GetCandidates().Any(w =>
+               WorkspaceMetadata.IsVsCodeProcess(w.ProcessName) &&
+               w.Title.Contains(group.TitleMarker, StringComparison.Ordinal));
+
+    /// <summary>Start the group's VSCode instance on this folder. Every VSCODE_* and ELECTRON_*
+    /// variable is stripped first: inherited from a shell running under an extension host they
+    /// make Code.exe start as plain Node, which dies on --user-data-dir with exit 9 and no
+    /// window (measured 21-08-2026). The deck is not normally launched that way - but it is
+    /// while it is being tested from a session, which is the one run where a silent failure
+    /// costs the most.</summary>
+    private static bool LaunchGroup(SessionGroupConfig group, string workspacePath)
+    {
+        try
+        {
+            string exe = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Microsoft VS Code", "Code.exe");
+            if (!File.Exists(exe)) return false;
+            var psi = new System.Diagnostics.ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("--user-data-dir");
+            psi.ArgumentList.Add(group.UserDataDir);
+            if (group.ExtensionsDir.Length > 0)
+            {
+                psi.ArgumentList.Add("--extensions-dir");
+                psi.ArgumentList.Add(group.ExtensionsDir);
+            }
+            psi.ArgumentList.Add(workspacePath);
+            foreach (string key in psi.Environment.Keys
+                         .Where(k => k.StartsWith("VSCODE_", StringComparison.OrdinalIgnoreCase) ||
+                                     k.StartsWith("ELECTRON_", StringComparison.OrdinalIgnoreCase))
+                         .ToList())
+                psi.Environment.Remove(key);
+            System.Diagnostics.Process.Start(psi);
+            LogService.Info("group", $"launched \"{group.Name}\" ({group.Id}) on {workspacePath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogService.Info("group", $"launching \"{group.Name}\" failed: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Point the card at the window this session lives in, before anything focuses
     /// it. For callers outside the click handler (the CLI's `session open`).</summary>
     public void PointCardAtSessionWindow(WorkspaceViewModel ws, SessionViewModel session)
@@ -2442,7 +2628,7 @@ public partial class MainWindow : Window
         if (conn == null)
         {
             if (ws.Path.Length > 0)
-                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (session.SessionId, null, DateTime.Now);
+                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (session.SessionId, null, null, DateTime.Now);
             return (false, "no VSCode connector for this workspace yet — request queued");
         }
         if (!conn.TrySend(new { Cmd = "openSession", SessionId = session.SessionId, Maximize = Vm.OpenSessionMaximized }))
@@ -2456,15 +2642,21 @@ public partial class MainWindow : Window
     /// <summary>+ New Session (feedback 2026-07-19): open a fresh Claude conversation tab
     /// in the workspace's VSCode window; parks like openSession when VSCode is launching.
     /// An optional opening prompt (a task's newSessionPrompt, T-0116) rides along.</summary>
-    public (bool, string) NewSessionInVscode(WorkspaceViewModel ws, string? prompt = null)
+    /// <paramref name="group"/> pins the session to ONE VSCode instance (the modifier held at
+    /// the click, or the CLI's --group). It is never approximated: a group whose instance is
+    /// not up gets launched, or waited for, but the session does not quietly open in another
+    /// account's window - which is the whole reason the groups exist.
+    public (bool, string) NewSessionInVscode(WorkspaceViewModel ws, string? prompt = null,
+                                             SessionGroupConfig? group = null)
     {
-        var conn = FindConnector(ws);
+        var conn = group != null ? ConnectorInGroup(ws, group) : FindConnector(ws);
+        if (group != null && conn == null) return QueueGroupSession(ws, prompt, group);
         RebindToConnectorWindow(ws, conn);      // same folder open twice: raise the right window
         FocusWorkspace(ws);
         if (conn == null)
         {
             if (ws.Path.Length > 0)
-                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (null, prompt, DateTime.Now);
+                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (null, prompt, null, DateTime.Now);
             SetStatus("VSCode is starting — the new session will open once the connector is up");
             return (false, "no VSCode connector yet — request queued");
         }
@@ -2473,8 +2665,34 @@ public partial class MainWindow : Window
             _connectors.Remove(conn);
             return (false, "connector connection lost");
         }
-        SetStatus($"Opening a new session in \"{ws.DisplayTitle}\"");
+        SetStatus(group == null
+            ? $"Opening a new session in \"{ws.DisplayTitle}\""
+            : $"Opening a new session in {group.Name}");
+        LogService.Info("group", $"new session → \"{group?.Name ?? ws.DisplayTitle}\" " +
+                                 $"pid={conn.Pid} window-pid={conn.OwnerPid}");
         return (true, "");
+    }
+
+    /// <summary>The requested group has no connector. Start its instance when we know how and
+    /// no window of it is already up, and park the request under the group's name so the
+    /// FIRST connector to appear cannot claim it unless it is that group's.</summary>
+    private (bool, string) QueueGroupSession(WorkspaceViewModel ws, string? prompt, SessionGroupConfig group)
+    {
+        if (ws.Path.Length == 0) return (false, $"{group.Name}: the card has no folder to open");
+        _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (null, prompt, group.Id, DateTime.Now);
+        if (GroupWindowIsOpen(group))
+        {
+            SetStatus($"{group.Name} is open but not connected yet — the session will start there when it is");
+            return (false, $"{group.Id}: window up, connector not");
+        }
+        if (group.UserDataDir.Length > 0 && LaunchGroup(group, ws.Path))
+        {
+            SetStatus($"Starting {group.Name} — the session will open there once it is up");
+            return (false, $"{group.Id}: launching");
+        }
+        _pendingOpens.Remove(WorkspaceMetadata.NormalizePath(ws.Path));
+        SetStatus($"{group.Name} is not running, and the deck has no way to start it — nothing opened");
+        return (false, $"{group.Id}: not running");
     }
 
     // ---- focus / pin / stage ----
@@ -2982,24 +3200,25 @@ public partial class MainWindow : Window
     /// screen and then against the file's launch index, so a number from any part of the tree
     /// works — but only for tasks the producer recorded a directory for, because there is
     /// nowhere to open the others.</summary>
-    private void RunTask_Click(object sender, RoutedEventArgs e) => RunTypedTask(CtrlHeld);
+    private void RunTask_Click(object sender, RoutedEventArgs e) => RunTypedTask(false);
 
+    /// <summary>Enter runs the typed number. Alt+Enter has to be read through SystemKey:
+    /// WPF reports any Alt combination as Key.System and puts the real key in SystemKey, so
+    /// the plain check saw nothing and the orange group could not be reached from the box.
+    /// </summary>
     private void RunTaskBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (e.Key != System.Windows.Input.Key.Enter) return;
-        RunTypedTask(CtrlHeld);
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        if (key != System.Windows.Input.Key.Enter) return;
+        RunTypedTask(false);
         e.Handled = true;
     }
 
-    /// <summary>Ctrl on Run / Enter asks for the short form of a coordinator session
-    /// (Shay, 13-08-2026).</summary>
-    private static bool CtrlHeld
-        => (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control)
-           == System.Windows.Input.ModifierKeys.Control;
-
-    /// <summary>The words the box accepts AFTER a number as the same request Ctrl makes — the
-    /// hand is already in the box, so it should not have to reach for a modifier. Hebrew and
-    /// English both, plus the flag itself for whoever types it out.</summary>
+    /// <summary>The words the box accepts AFTER a number to ask for the short form of a
+    /// coordinator session. Since 04-09-2026 they are the ONLY way to ask for it: Ctrl used to
+    /// mean the same thing and now picks which VSCode instance — which Claude account — the
+    /// session opens in (Shay: he never used the fast form, and wanted the modifier for the
+    /// account). Hebrew and English both, plus the flag itself for whoever types it out.</summary>
     private static bool IsFastWord(string word)
         => word.Equals("fast", StringComparison.OrdinalIgnoreCase)
            || word.Equals("--fast", StringComparison.OrdinalIgnoreCase)
@@ -3013,14 +3232,21 @@ public partial class MainWindow : Window
             SetStatus("Type a task number first, e.g. 4.13.19");
             return;
         }
-        // Strip a trailing "fast"/"מהיר" before resolving: the number has to reach FindByNumber
-        // exactly as the tasks file spells it.
+        // Strip the trailing words before resolving: the number has to reach FindByNumber
+        // exactly as the tasks file spells it. Two words are accepted, in any order —
+        // "fast"/"מהיר" for a coordinator's short form, and a group's id or alias
+        // ("green"/"ירוק") for the VSCode instance, i.e. the account, it opens in.
         string number = typed;
-        int space = typed.LastIndexOfAny(new[] { ' ', '\t' });
-        if (space > 0 && IsFastWord(typed[(space + 1)..]))
+        SessionGroupConfig? group = null;
+        while (true)
         {
-            fastRequested = true;
-            number = typed[..space].TrimEnd();
+            int space = number.LastIndexOfAny(new[] { ' ', '\t' });
+            if (space <= 0) break;
+            string word = number[(space + 1)..];
+            if (IsFastWord(word)) fastRequested = true;
+            else if (GroupByWord(word) is { } g) group = g;
+            else break;
+            number = number[..space].TrimEnd();
         }
         if (Vm.TasksPanel.FindByNumber(number) is not { } task)
         {
@@ -3030,8 +3256,14 @@ public partial class MainWindow : Window
         RunTaskBox.Clear();
         // Whether the number is a coordinator's, and what to say when it is not, is decided in
         // HandleTaskActivate so that every entry point answers the same way.
-        HandleTaskActivate(task, RunTaskBox, fastRequested);
+        HandleTaskActivate(task, RunTaskBox, fastRequested, group);
     }
+
+    /// <summary>A session group named by its id or one of its aliases, or null.</summary>
+    private SessionGroupConfig? GroupByWord(string word)
+        => SessionGroups.FirstOrDefault(g =>
+               string.Equals(g.Id, word, StringComparison.OrdinalIgnoreCase) ||
+               g.Aliases.Any(a => string.Equals(a, word, StringComparison.OrdinalIgnoreCase)));
 
     private void StartupMenuItem_Click(object sender, RoutedEventArgs e)
     {

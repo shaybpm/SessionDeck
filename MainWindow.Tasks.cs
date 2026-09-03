@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using SessionDeck.Models;
 using SessionDeck.Services;
 using SessionDeck.ViewModels;
 
@@ -132,15 +133,25 @@ public partial class MainWindow
     /// <paramref name="fast"/> only ever reaches a NEW session — resuming an existing one
     /// re-enters a conversation that already chose its own opening.
     ///
-    /// Ctrl is read HERE rather than at each call site, and the coordinator check lives here
-    /// too. Every way into a task — its card, the strip, the nav grid, the Run box — funnels
-    /// through this method, so this is the only place where the modifier is guaranteed to be
-    /// seen. Asking each call site to pass it is what made Ctrl work in the Run box and
-    /// nowhere else (Shay, 13-08-2026).</summary>
-    public void HandleTaskActivate(TaskItemViewModel task, FrameworkElement anchor, bool fast = false)
+    /// The modifier is read HERE rather than at each call site, and the coordinator check
+    /// lives here too. Every way into a task — its card, the strip, the nav grid, the Run box
+    /// — funnels through this method, so this is the only place where a modifier is guaranteed
+    /// to be seen. Asking each call site to pass it is what made Ctrl work in the Run box and
+    /// nowhere else (Shay, 13-08-2026).
+    ///
+    /// Since 04-09-2026 the modifier picks the VSCode instance — the Claude ACCOUNT — the new
+    /// session opens in (<see cref="MainWindow.GroupForModifiers"/>). It used to ask for the
+    /// short form of a coordinator session; that meaning moved onto the word "fast"/"מהיר",
+    /// which is the only way in now, because Shay never used the modifier for it and wanted it
+    /// for the account instead.</summary>
+    public void HandleTaskActivate(TaskItemViewModel task, FrameworkElement anchor, bool fast = false,
+                                   SessionGroupConfig? group = null)
     {
-        bool requested = fast || CtrlHeld;
+        bool requested = fast;
         bool honored = requested && IsCoordinatorNumber(task.Id);
+        // A group named in the Run box wins over the keys, because it was typed on purpose;
+        // with neither, the card's no-modifier group (if it has one) is what a plain click means.
+        group ??= GroupForTask(task);
 
         if (!task.HasTarget)
         {
@@ -149,7 +160,7 @@ public partial class MainWindow
         }
         if (task.Sessions.Count == 0)
         {
-            StartTaskNewSession(task, honored);
+            StartTaskNewSession(task, honored, group);
             WarnIfFastIgnored(task, requested, honored);
             return;
         }
@@ -157,11 +168,15 @@ public partial class MainWindow
         // LTR menu with English items; each item's own direction still follows its header
         // (App.xaml MenuItem style), so a Hebrew session title renders RTL inside it.
         var menu = new ContextMenu();
-        var newItem = new MenuItem { Header = honored ? "+ New session (fast)" : "+ New session" };
-        // Ctrl counts whether it was held when the menu opened or when the item is picked: the
-        // menu is a pause in the middle of one gesture, and either end of it states the intent.
-        newItem.Click += (_, _) =>
-            StartTaskNewSession(task, honored || (CtrlHeld && IsCoordinatorNumber(task.Id)));
+        string groupSuffix = group == null ? "" : $" · {group.Name}";
+        var newItem = new MenuItem
+        {
+            Header = (honored ? "+ New session (fast)" : "+ New session") + groupSuffix,
+        };
+        // The modifier counts whether it was held when the menu opened or when the item is
+        // picked: the menu is a pause in the middle of one gesture, and either end of it
+        // states the intent.
+        newItem.Click += (_, _) => StartTaskNewSession(task, honored, GroupForTask(task) ?? group);
         newItem.IsEnabled = task.HasWorkspace;
         menu.Items.Add(newItem);
         menu.Items.Add(new Separator());
@@ -254,7 +269,7 @@ public partial class MainWindow
             FocusWorkspace(ws);
             var conn = FindConnector(ws);
             if (conn == null)
-                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (sessionId, null, DateTime.Now);
+                _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (sessionId, null, null, DateTime.Now);
             else if (!conn.TrySend(new { Cmd = "openSession", SessionId = sessionId, Maximize = Vm.OpenSessionMaximized }))
                 _connectors.Remove(conn);
             SetStatus($"Opening a session of \"{task.Name}\" in VSCode…");
@@ -269,14 +284,22 @@ public partial class MainWindow
         // the parked request resumes the session (no card is auto-added).
         if (WindowActions.LaunchVsCode(task.WorkspacePath))
         {
-            _pendingOpens[WorkspaceMetadata.NormalizePath(task.WorkspacePath)] = (sessionId, null, DateTime.Now);
+            _pendingOpens[WorkspaceMetadata.NormalizePath(task.WorkspacePath)] = (sessionId, null, null, DateTime.Now);
             SetStatus($"Launching VSCode for \"{task.Name}\" — the session will start once the connector is up");
         }
         else
             SetStatus($"\"{task.Name}\" — launching VSCode failed");
     }
 
-    private void StartTaskNewSession(TaskItemViewModel task, bool fast = false)
+    /// <summary>The session group the keys held right now ask for, on the card this task
+    /// would open in. Null on every card that has no groups, which is all of them but the
+    /// .claude management card.</summary>
+    private SessionGroupConfig? GroupForTask(TaskItemViewModel task)
+        => task.HasWorkspace && Vm.FindByPath(task.WorkspacePath) is { } ws
+               ? GroupForModifiers(ws) : null;
+
+    private void StartTaskNewSession(TaskItemViewModel task, bool fast = false,
+                                     SessionGroupConfig? group = null)
     {
         if (!task.HasWorkspace)
         {
@@ -286,7 +309,7 @@ public partial class MainWindow
         string? prompt = BuildNewSessionPrompt(task, fast);
         if (Vm.FindByPath(task.WorkspacePath) is { } ws)
         {
-            NewSessionInVscode(ws, prompt);
+            NewSessionInVscode(ws, prompt, group);
             return;
         }
         if (!Directory.Exists(task.WorkspacePath))
@@ -296,7 +319,7 @@ public partial class MainWindow
         }
         if (WindowActions.LaunchVsCode(task.WorkspacePath))
         {
-            _pendingOpens[WorkspaceMetadata.NormalizePath(task.WorkspacePath)] = (null, prompt, DateTime.Now);
+            _pendingOpens[WorkspaceMetadata.NormalizePath(task.WorkspacePath)] = (null, prompt, null, DateTime.Now);
             SetStatus($"Launching VSCode for \"{task.Name}\" — a new session will open once the connector is up");
         }
         else
