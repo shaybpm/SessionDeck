@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
@@ -158,6 +158,15 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// <summary>Sessions a person has opened on this card. Persisted, and only ever
     /// incremented — once per session, by TouchUsage.</summary>
     public int UseCount { get; set; }
+
+    /// <summary>When this card's LAST VSCode window went away, or null while one is
+    /// connected (and on a card that never had one). Runtime only — a restart starts over,
+    /// which is right: nothing is known about a window that closed before the deck ran.
+    ///
+    /// It is what separates "the host of these sessions has exited" from "this card has no
+    /// connector and never did" — a terminal session or a headless run. The first is proof;
+    /// the second proves nothing, so only the first earns the fast orphan close.</summary>
+    public DateTime? WindowGoneAt { get; set; }
 
     // ---- live window binding (engine reuse from stage A/B) ----
 
