@@ -59,9 +59,11 @@ No modifier is a group too, so the plain click has a fixed home rather than a gu
 Groups are config, under `SessionGroups` in `%APPDATA%\SessionDeck\config.json`: an id, the
 modifier, a marker that appears in that instance's window titles (a coloured square in
 `window.title` is ideal - one per instance, and nothing else carries it), the folder it applies
-to, and optionally its `--user-data-dir`, which lets the deck start the instance when it is not
-running. `sessiondeck groups` prints them with the state of each. No groups configured, or a
-card no group names: nothing changes.
+to, and optionally the script that starts that instance, which lets the deck bring it up when it
+is not running. The deck runs that script rather than composing a `Code.exe` command line of its
+own, because what binds a window to an account is an environment variable the launcher sets, and
+a window started without it looks identical and uses the wrong one. `sessiondeck groups` prints
+every group with its state. No groups configured, or a card no group names: nothing changes.
 
 ### Toolbar toggles
 
