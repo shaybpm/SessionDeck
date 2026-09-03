@@ -623,6 +623,15 @@ public partial class MainWindow : Window
     /// longer just leaves the deck showing sessions whose host has exited.</summary>
     private static readonly TimeSpan DeadWindowTtl = TimeSpan.FromMinutes(2);
 
+    /// <summary>In a MANUAL reconcile, how recently a session must have spoken to be spared
+    /// on the "window is up but no tab answers" shape. That shape rests on matching a tab
+    /// LABEL, and the labels lag: a new session's tab already shows its ai-title while the
+    /// deck still knows only the opening prompt, until the 10s transcript scan catches up.
+    /// The automatic sweep rides out that lag on its 15-minute TTL; a button press has no TTL
+    /// to ride, so it needs this instead. The dead-window shape deliberately gets no such
+    /// guard — no label is being matched there, and recent noise is exactly what lies.</summary>
+    private static readonly TimeSpan ManualReconcileGrace = TimeSpan.FromSeconds(60);
+
     /// <summary>Newest sign of life we can observe: hook events (LastEventAt) or the
     /// transcript file's own mtime — the transcript is authoritative when hooks are dead.</summary>
     private static DateTime LastActivity(SessionViewModel s)
@@ -639,14 +648,55 @@ public partial class MainWindow : Window
         => s.LabelCandidates.Count > 0 || !string.IsNullOrEmpty(s.CustomTitle)
            || !string.IsNullOrEmpty(s.TabTitle) || !string.IsNullOrEmpty(s.AutoTitle);
 
+    /// <summary>Reconcile every card against what VSCode actually has open, right now, and
+    /// close what no longer exists. The ↻ button and `sessiondeck reconcile` both land here.
+    ///
+    /// It exists because the automatic sweep is deliberately slow, and the situation that
+    /// produces the most junk is one the user can see coming: running out of tokens and
+    /// switching accounts restarts VSCode, every tab resumes under a new session id, and the
+    /// old ones linger until each TTL matures. Waiting is right for a sweep nobody asked for;
+    /// it is wrong when someone is looking at the deck and telling it that it is wrong.
+    ///
+    /// Re-reads the connectors and the tab correlation FIRST, so the sweep decides on this
+    /// second's evidence rather than whatever the last sync left behind. Nothing here is
+    /// destructive beyond the sweep's own close, and that close still revives on the next
+    /// hook — so a wrong call costs a card until the session speaks again.</summary>
+    public (string, bool) ReconcileNow()
+    {
+        foreach (var ws in Vm.Workspaces.ToList())
+        {
+            RefreshMetadata(ws);
+            ApplyConnectorState(ws);
+            ReapplyTabCorrelation(ws);
+        }
+        RefreshPhantomSessions();
+        int closed = RefreshOrphanSessions(force: true);
+        RefreshBlinkAndSummary();
+        QueueSave();
+        // The title scan is asynchronous and lands afterwards; it only ever ADDS a match, so
+        // it cannot un-close anything this pass decided. Kicked off last so the next press
+        // (or tick) judges on fresher labels.
+        RefreshTranscriptTitles();
+        int open = Vm.Workspaces.Sum(w => w.Sessions.Count(s => !s.Closed));
+        LogService.Info("status", $"reconcile: closed {closed}, {open} session(s) still open");
+        return (closed == 0
+            ? $"Nothing to clean up — all {open} open session(s) match a live tab"
+            : $"Cleaned up {closed} session(s) whose tab or window is gone — {open} still open", true);
+    }
+
     /// <summary>Close sessions whose host died without a SessionEnd hook. Two shapes:
     /// (a) the workspace's VSCode window is gone — an update/crash kill skips the hooks
     /// entirely; (b) the window is up but no tab answers to the session's titles — a
     /// restored-then-closed tab was never a live session, so closing it fires nothing.
     /// Both are invisible to the phantom sweep (status isn't idle, the transcript exists).
-    /// The close waits out OrphanSessionTtl on both the condition and total silence.</summary>
-    private void RefreshOrphanSessions()
+    /// The close waits out OrphanSessionTtl on both the condition and total silence.
+    ///
+    /// <paramref name="force"/> is the ↻ button and `sessiondeck reconcile`: the user is
+    /// looking at the deck saying it is wrong NOW, so the two shapes that carry evidence stop
+    /// waiting. Returns how many sessions were closed, which is what the button reports.</summary>
+    private int RefreshOrphanSessions(bool force = false)
     {
+        int closed = 0;
         foreach (var ws in Vm.Workspaces.ToList())
         {
             bool connected = ConnectorCount(ws) > 0;
@@ -669,18 +719,28 @@ public partial class MainWindow : Window
             {
                 bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
                 if (!candidate) { s.OrphanSince = null; continue; }
-                // OrphanSince is set by this sweep, so it only advances while the deck is
-                // RUNNING AND AWAKE — which is what makes the short TTL safe. Sleeping the
-                // machine drops every connector at once (measured twice, 18:45 and 19:16 on
-                // 03-09-2026), and the extensions take ~5s after the wake to come back. Reading
-                // the wall clock alone would have closed every session on every card inside that
-                // window — a mass false close on nothing but a lid. Counting from a sweep costs
-                // one extra 10s tick and cannot be fooled by a clock that jumped.
-                s.OrphanSince ??= DateTime.Now;
-                if (DateTime.Now - s.OrphanSince < (windowDied ? DeadWindowTtl : OrphanSessionTtl)) continue;
-                // The silence guard is the part the dead-window shape drops: a resume fired on
-                // the way out makes recent noise a LIAR about whether anyone is still home.
-                if (!windowDied && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
+                // A manual reconcile skips the wait on the two shapes that have evidence. The
+                // third — a card that never had a VSCode window at all — has none, so its guard
+                // stands even here: a terminal session or a headless run must not be swept away
+                // by a button press. ManualReconcileGrace covers the label-lag on the first.
+                bool skipWait = force && (windowDied ||
+                                          (connected && DateTime.Now - LastActivity(s) >= ManualReconcileGrace));
+                if (!skipWait)
+                {
+                    // OrphanSince is set by this sweep, so it only advances while the deck is
+                    // RUNNING AND AWAKE — which is what makes the short TTL safe. Sleeping the
+                    // machine drops every connector at once (measured twice, 18:45 and 19:16
+                    // on 03-09-2026), and the extensions take ~5s after the wake to come back.
+                    // Reading the wall clock alone would have closed every session on every
+                    // card inside that window — a mass false close on nothing but a lid.
+                    // Counting from a sweep costs one extra 10s tick and cannot be fooled by a
+                    // clock that jumped.
+                    s.OrphanSince ??= DateTime.Now;
+                    if (DateTime.Now - s.OrphanSince < (windowDied ? DeadWindowTtl : OrphanSessionTtl)) continue;
+                    // The silence guard is the part the dead-window shape drops: a resume fired
+                    // on the way out makes recent noise a LIAR about whether anyone is home.
+                    if (!windowDied && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
+                }
                 // Which of the two shapes fired, and against what — "ended (orphaned)" alone
                 // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
                 LogService.Info("status", $"session={s.SessionId} orphan close ws=\"{ws.DisplayTitle}\" " +
@@ -688,8 +748,10 @@ public partial class MainWindow : Window
                      : windowDied ? $"its VSCode window closed at {ws.WindowGoneAt:HH:mm:ss}"
                      : "no VSCode window"));
                 EndSession(s.SessionId, new HookInfo(Reason: "orphaned"));
+                closed++;
             }
         }
+        return closed;
     }
 
     /// <summary>Background scan of session transcripts for titles (stage D): the tab title
@@ -2782,6 +2844,16 @@ public partial class MainWindow : Window
         ApplyDeckVisibility();
         SetStatus(Vm.ActiveOnly ? "Showing open workspaces only" : "Showing all workspaces");
         QueueSave();
+    }
+
+    /// <summary>The ↻ button: reconcile the deck against VSCode and say what it cleaned.
+    /// The count goes to the status line rather than a dialog — pressing it and being told
+    /// "nothing to clean up" is a useful answer, and a dialog for that would be a punishment.
+    /// </summary>
+    private void Reconcile_Click(object sender, RoutedEventArgs e)
+    {
+        var (msg, _) = ReconcileNow();
+        SetStatus(msg);
     }
 
     private void Sort_Click(object sender, RoutedEventArgs e)

@@ -1,4 +1,4 @@
-<Window x:Class="SessionDeck.MainWindow"
+﻿<Window x:Class="SessionDeck.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SessionDeck"
@@ -84,6 +84,13 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
+                    <!-- Declared second so the RightToLeft strip puts it beside ⚙ on the top
+                         row: switching accounts is when the deck fills with dead sessions, and
+                         a cleanup you have to hunt for is one you stop using. -->
+                    <Button x:Name="ReconcileButton" Content="↻" FontSize="15"
+                            ToolTip="Refresh now: re-read what VSCode actually has open and close the sessions whose tab or window is gone.&#10;The deck does this on its own, but deliberately slowly. Press this after switching accounts or restarting VSCode, when you can see it is out of date.&#10;A session closed by mistake comes back the moment it does anything."
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="8,2" Margin="0,2" Cursor="Hand" Click="Reconcile_Click"/>
                     <!-- The tasks page has to stay reachable from the deck even with the strip
                          hidden — the 📋 that used to sit on top of the strip went with it. -->
                     <Button x:Name="TasksPageButton" Content="📋" FontSize="14" ToolTip="Tasks page"
