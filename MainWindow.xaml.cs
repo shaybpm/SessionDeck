@@ -2091,14 +2091,39 @@ public partial class MainWindow : Window
     /// not only when a sync arrives (recurring blink issue, root-caused 2026-07-20).</summary>
     private static bool ReapplyTabCorrelation(WorkspaceViewModel ws)
     {
-        foreach (var s in ws.Sessions)
+        // One tab, one open session. Several sessions routinely answer to the same label —
+        // an account switch, a /clear or a resume leaves a dead session still carrying the
+        // title the live one shows — and marking them ALL "open as a tab" is what kept the
+        // orphan sweep from ever closing any of them: every duplicate was propped up by the
+        // one surviving tab, so a card accumulated them for days (17 on ".claude",
+        // 03-09-2026). Capacity is the number of tabs carrying the label, so two genuinely
+        // live tabs with the same title still keep two sessions; only the surplus is left
+        // uncorrelated, oldest first, for the sweep to close after its silence TTL.
+        var remaining = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var label in ws.ClaudeTabLabels)
+            remaining[label] = remaining.TryGetValue(label, out int n) ? n + 1 : 1;
+
+        foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).OrderByDescending(LastActivity))
+        {
+            string? matched = null;
+            foreach (var label in ws.ClaudeTabLabels)
+                if (remaining[label] > 0 && MatchTabLabel(label, s) is { } m)
+                { matched = m; remaining[label]--; break; }
+            s.OpenAsTab = matched != null;
+            // Adopt the tab's own text as the card title (request 2026-07-20). Kept when
+            // the tab closes — a title that changes on tab close is worse than a stale one.
+            if (matched != null) s.MatchedTabLabel = matched;
+        }
+
+        // A closed or phantom session claims nothing: both are outside the orphan sweep's
+        // reach, so a tab spent on one would starve a session the sweep CAN close — turning
+        // a leftover into a false close of something live.
+        foreach (var s in ws.Sessions.Where(s => s.Closed || s.Phantom))
         {
             string? matched = null;
             foreach (var label in ws.ClaudeTabLabels)
                 if (MatchTabLabel(label, s) is { } m) { matched = m; break; }
             s.OpenAsTab = matched != null;
-            // Adopt the tab's own text as the card title (request 2026-07-20). Kept when
-            // the tab closes — a title that changes on tab close is worse than a stale one.
             if (matched != null) s.MatchedTabLabel = matched;
         }
 
@@ -2305,7 +2330,13 @@ public partial class MainWindow : Window
     private List<string> ApplyConnectorState(WorkspaceViewModel ws)
     {
         var conns = ConnectorsFor(ws);
-        var labels = conns.SelectMany(c => c.Tabs).Select(t => t.Label).Distinct().ToList();
+        // Duplicates are kept: two tabs with the same label are two tabs, and the
+        // correlation above hands out one session per tab instance. Distinct() collapsed
+        // them, which silently halved the capacity of every repeated title. Deduped by pid
+        // instead, so a reconnect that left its old connection behind cannot double a
+        // window's tabs.
+        var labels = conns.GroupBy(c => c.Pid).Select(g => g.Last())
+                          .SelectMany(c => c.Tabs).Select(t => t.Label).ToList();
         ws.SetClaudeTabs(labels);
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
