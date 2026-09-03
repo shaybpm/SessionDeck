@@ -272,14 +272,20 @@ public class SessionGroupConfig
     /// Without it a plain click on an ordinary repo card would ask for the default group and
     /// find nothing.</summary>
     public string WorkspacePath { get; set; } = "";
-    /// <summary>The instance's <c>--user-data-dir</c>. Set = the deck may LAUNCH the group
-    /// when it is not running; empty = a missing group falls back to the ordinary routing.
-    /// </summary>
-    public string UserDataDir { get; set; } = "";
-    /// <summary>The instance's <c>--extensions-dir</c>, when it shares one with another
-    /// instance (Shay's three do, so one install covers them all). Only used when launching.
-    /// </summary>
-    public string ExtensionsDir { get; set; } = "";
+    /// <summary>The script that starts this instance, run when the group is asked for and its
+    /// window is not there. Empty = the deck never launches it and says so instead.
+    ///
+    /// It is a LAUNCHER and deliberately not a command line the deck assembles itself. Two
+    /// things measured on this machine say so. The account is not the `--user-data-dir`: that
+    /// only forces a separate process, and what actually binds the window to a Claude account
+    /// is <c>CLAUDE_SECURESTORAGE_CONFIG_DIR</c> in its environment - a window started without
+    /// it looks right, title and all, and silently spends the DEFAULT wallet. And the start
+    /// itself goes through <c>bin\code.cmd</c>, not <c>Code.exe</c>: six attempts on 03-09-2026
+    /// to bring wallet 2 up through <c>Code.exe</c> produced no window at all. The launcher
+    /// scripts already carry both facts, plus a stuck-updater recovery; duplicating any of it
+    /// here would be a second copy to keep in step, and the copy that is wrong is the one that
+    /// costs an account.</summary>
+    public string Launcher { get; set; } = "";
     /// <summary>Words the Run box accepts after a task number to ask for this group, the same
     /// way "fast"/"מהיר" already asks for a coordinator's short form. The id always works;
     /// these are for the hand that is already in the box. Hebrew belongs here.</summary>
@@ -334,29 +340,47 @@ public class AppConfig
     {
         string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string claude = Path.Combine(home, ".claude");
-        string extensions = Path.Combine(home, ".vscode", "extensions");
-        SessionGroupConfig G(string id, string name, string modifier, string marker, string udd,
-                             string hebrew) => new()
+        SessionGroupConfig G(string id, string name, string modifier, string marker,
+                             string launcher, string hebrew) => new()
         {
             Id = id,
             Name = name,
             Modifier = modifier,
             TitleMarker = marker,
             WorkspacePath = claude,
-            UserDataDir = Path.Combine(home, udd),
-            ExtensionsDir = extensions,
+            Launcher = Path.Combine(claude, "scripts", launcher),
             Aliases = new List<string> { hebrew },
         };
         return new List<SessionGroupConfig>
         {
-            G("purple", "🟪 DEV MGMT",   "",     "🟪", ".vscode-mgmt",  "סגול"),
-            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", ".vscode-mgmt2", "ירוק"),
-            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", ".vscode-mgmt3", "כתום"),
+            G("purple", "🟪 DEV MGMT",   "",     "🟪", "launch-dev-mgmt-window.vbs",  "סגול"),
+            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", "launch-dev-mgmt2-window.vbs", "ירוק"),
+            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", "launch-dev-mgmt3-window.vbs", "כתום"),
         };
     }
-    public int SchemaVersion { get; set; } = 5;   // 3: `done` moved green→purple, `he` took green
+
+    /// <summary>Schema 6: the seeded groups learn their launcher. Schema 5 had the deck build
+    /// its own <c>Code.exe --user-data-dir</c> command line, which starts a window on the
+    /// DEFAULT Claude account - the wallet is bound by an environment variable only the
+    /// launcher scripts set - and which, measured, often starts no window at all. Only a group
+    /// still carrying the schema-5 shape (no launcher) is touched; anything edited by hand is
+    /// left exactly as it is.</summary>
+    public static int FillMissingLaunchers(List<SessionGroupConfig> groups)
+    {
+        int filled = 0;
+        foreach (var seeded in DefaultSessionGroups())
+        {
+            var g = groups.FirstOrDefault(x => string.Equals(x.Id, seeded.Id, StringComparison.OrdinalIgnoreCase));
+            if (g == null || g.Launcher.Length > 0) continue;
+            g.Launcher = seeded.Launcher;
+            filled++;
+        }
+        return filled;
+    }
+    public int SchemaVersion { get; set; } = 6;   // 3: `done` moved green→purple, `he` took green
                                                   // 4: usage stamps rebuilt — machine activity stopped counting as use
                                                   // 5: SessionGroups seeded with the three .claude management instances
+                                                  // 6: a group launches by its own script, not by a command line the deck builds
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;

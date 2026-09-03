@@ -148,9 +148,10 @@ thing to survive - on this machine it is how the accounts are separated, one Cla
 `--user-data-dir`. `SessionGroups` (config) names each instance by a marker in its window titles
 and binds it to a modifier, and `NewSessionInVscode` takes the resulting group instead of asking
 `FindConnector` to guess. A group is never approximated: with its instance not running the deck
-starts it (`LaunchGroup`, with every `VSCODE_*`/`ELECTRON_*` variable stripped so `Code.exe` does
-not come up as plain Node) and parks the request under the group's id, so the next connector to
-appear cannot claim it unless it is the right one. Opening or resuming an EXISTING session is
+starts it by running that group's own launcher script (`LaunchGroup` - never a command line of
+the deck's own, because the account is bound by an environment variable only that script sets)
+and parks the request under the group's id, so the next connector to appear cannot claim it
+unless it is the right one. Opening or resuming an EXISTING session is
 untouched - it goes where its tab already is.
 
 **Which OS window is a connector in?** The extension cannot see its own `HWND`, and the two

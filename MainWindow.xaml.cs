@@ -167,6 +167,10 @@ public partial class MainWindow : Window
             LogService.Info("config", "schema<5: seeded " + _sessionGroups.Count +
                 " session groups (" + string.Join(", ", _sessionGroups.Select(g => g.Id)) + ")");
         }
+        // Schema 6: a group seeded by schema 5 knows no launcher, and the deck's own
+        // Code.exe command line brought the window up on the WRONG Claude account.
+        if (config.SchemaVersion < 6 && AppConfig.FillMissingLaunchers(_sessionGroups) is > 0 and var filled)
+            LogService.Info("config", $"schema<6: filled the launcher on {filled} session group(s)");
         LoadCustomToggles();
 
         int usageRebuilt = 0;
@@ -2384,7 +2388,8 @@ public partial class MainWindow : Window
         if (ws != null && ConnectorInGroup(ws, group) is { } conn)
             return $"connected (window-pid {conn.OwnerPid})";
         if (GroupWindowIsOpen(group)) return "open, connector not up";
-        return group.UserDataDir.Length > 0 ? "not running (the deck can start it)" : "not running";
+        return group.Launcher.Length > 0 && File.Exists(group.Launcher)
+                   ? "not running (the deck can start it)" : "not running";
     }
 
     private static string HeldModifierName()
@@ -2447,40 +2452,48 @@ public partial class MainWindow : Window
                WorkspaceMetadata.IsVsCodeProcess(w.ProcessName) &&
                w.Title.Contains(group.TitleMarker, StringComparison.Ordinal));
 
-    /// <summary>Start the group's VSCode instance on this folder. Every VSCODE_* and ELECTRON_*
-    /// variable is stripped first: inherited from a shell running under an extension host they
-    /// make Code.exe start as plain Node, which dies on --user-data-dir with exit 9 and no
-    /// window (measured 21-08-2026). The deck is not normally launched that way - but it is
-    /// while it is being tested from a session, which is the one run where a silent failure
-    /// costs the most.</summary>
-    private static bool LaunchGroup(SessionGroupConfig group, string workspacePath)
+    /// <summary>Start the group's instance by running ITS OWN launcher script.
+    ///
+    /// The deck does not assemble the command line, and that is the point. What binds a window
+    /// to a Claude account is `CLAUDE_SECURESTORAGE_CONFIG_DIR` in its environment, not the
+    /// `--user-data-dir` (which only forces a separate process so the variable can reach the
+    /// extension at all): a window started without it comes up looking exactly right and spends
+    /// the DEFAULT wallet. The start also has to go through `bin\code.cmd` rather than
+    /// `Code.exe` - six attempts to bring wallet 2 up through `Code.exe` on 03-09-2026 produced
+    /// no window whatsoever. Both facts, and a stuck-updater recovery, already live in
+    /// `~/.claude/scripts/launch-dev-mgmt*-window.vbs`. A second copy here would be one more
+    /// thing to keep in step, and being wrong about it costs an account.
+    ///
+    /// Every VSCODE_* and ELECTRON_* variable is stripped from the child anyway: inherited from
+    /// a shell running under an extension host they change how the VSCode CLI behaves, and the
+    /// deck IS started that way while it is being tested from a session.</summary>
+    private static bool LaunchGroup(SessionGroupConfig group)
     {
         try
         {
-            string exe = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Programs", "Microsoft VS Code", "Code.exe");
-            if (!File.Exists(exe)) return false;
-            var psi = new System.Diagnostics.ProcessStartInfo(exe)
+            if (group.Launcher.Length == 0 || !File.Exists(group.Launcher))
+            {
+                LogService.Info("group", $"\"{group.Name}\" has no launcher on disk " +
+                                         $"({(group.Launcher.Length == 0 ? "none configured" : group.Launcher)})");
+                return false;
+            }
+            bool script = group.Launcher.EndsWith(".vbs", StringComparison.OrdinalIgnoreCase) ||
+                          group.Launcher.EndsWith(".js", StringComparison.OrdinalIgnoreCase);
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                script ? "wscript.exe" : group.Launcher)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(group.Launcher) ?? "",
             };
-            psi.ArgumentList.Add("--user-data-dir");
-            psi.ArgumentList.Add(group.UserDataDir);
-            if (group.ExtensionsDir.Length > 0)
-            {
-                psi.ArgumentList.Add("--extensions-dir");
-                psi.ArgumentList.Add(group.ExtensionsDir);
-            }
-            psi.ArgumentList.Add(workspacePath);
+            if (script) psi.ArgumentList.Add(group.Launcher);
             foreach (string key in psi.Environment.Keys
                          .Where(k => k.StartsWith("VSCODE_", StringComparison.OrdinalIgnoreCase) ||
                                      k.StartsWith("ELECTRON_", StringComparison.OrdinalIgnoreCase))
                          .ToList())
                 psi.Environment.Remove(key);
             System.Diagnostics.Process.Start(psi);
-            LogService.Info("group", $"launched \"{group.Name}\" ({group.Id}) on {workspacePath}");
+            LogService.Info("group", $"launched \"{group.Name}\" ({group.Id}) via {group.Launcher}");
             return true;
         }
         catch (Exception ex)
@@ -2685,7 +2698,7 @@ public partial class MainWindow : Window
             SetStatus($"{group.Name} is open but not connected yet — the session will start there when it is");
             return (false, $"{group.Id}: window up, connector not");
         }
-        if (group.UserDataDir.Length > 0 && LaunchGroup(group, ws.Path))
+        if (LaunchGroup(group))
         {
             SetStatus($"Starting {group.Name} — the session will open there once it is up");
             return (false, $"{group.Id}: launching");
