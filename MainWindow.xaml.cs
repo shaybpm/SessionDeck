@@ -616,10 +616,11 @@ public partial class MainWindow : Window
     /// hook, see SetSessionStatus.</summary>
     private static readonly TimeSpan OrphanSessionTtl = TimeSpan.FromMinutes(15);
 
-    /// <summary>How long a card waits after its LAST VSCode window closed before its
-    /// sessions are declared over. Short on purpose: the extension reconnects every 5s, so
-    /// this covers a pipe blip and a window reload many times over, and anything longer
-    /// just leaves the deck showing sessions whose host has exited.</summary>
+    /// <summary>How long a card whose LAST VSCode window closed waits before its sessions are
+    /// declared over. Counted in SWEPT time, not wall time (see RefreshOrphanSessions), so a
+    /// sleeping machine does not burn through it. Short on purpose: the extension reconnects
+    /// every 5s, so this covers a pipe blip and a window reload many times over, and anything
+    /// longer just leaves the deck showing sessions whose host has exited.</summary>
     private static readonly TimeSpan DeadWindowTtl = TimeSpan.FromMinutes(2);
 
     /// <summary>Newest sign of life we can observe: hook events (LastEventAt) or the
@@ -663,18 +664,23 @@ public partial class MainWindow : Window
             // which un-closed a session AND restarted its clock, so the card kept a dead session
             // for a further quarter hour. A card that never had a window keeps the slow path:
             // there, no connector proves nothing at all (a terminal session, a headless run).
-            bool windowDied = !connected && ws.WindowGoneAt is { } gone
-                              && DateTime.Now - gone >= DeadWindowTtl;
+            bool windowDied = !connected && ws.WindowGoneAt != null;
             foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).ToList())
             {
                 bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
                 if (!candidate) { s.OrphanSince = null; continue; }
-                if (!windowDied)
-                {
-                    s.OrphanSince ??= DateTime.Now;
-                    if (DateTime.Now - s.OrphanSince < OrphanSessionTtl) continue;
-                    if (DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
-                }
+                // OrphanSince is set by this sweep, so it only advances while the deck is
+                // RUNNING AND AWAKE — which is what makes the short TTL safe. Sleeping the
+                // machine drops every connector at once (measured twice, 18:45 and 19:16 on
+                // 03-09-2026), and the extensions take ~5s after the wake to come back. Reading
+                // the wall clock alone would have closed every session on every card inside that
+                // window — a mass false close on nothing but a lid. Counting from a sweep costs
+                // one extra 10s tick and cannot be fooled by a clock that jumped.
+                s.OrphanSince ??= DateTime.Now;
+                if (DateTime.Now - s.OrphanSince < (windowDied ? DeadWindowTtl : OrphanSessionTtl)) continue;
+                // The silence guard is the part the dead-window shape drops: a resume fired on
+                // the way out makes recent noise a LIAR about whether anyone is still home.
+                if (!windowDied && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
                 // Which of the two shapes fired, and against what — "ended (orphaned)" alone
                 // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
                 LogService.Info("status", $"session={s.SessionId} orphan close ws=\"{ws.DisplayTitle}\" " +
