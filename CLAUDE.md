@@ -178,19 +178,27 @@ orphan sweep closes it after `ReplacedTtl` (15s of swept time) with no silence g
 the same label is never left to the sweep. The hold against `done`/`idle` is the same
 `keepMark` as `he`, logged `kept replaced`.
 
-**The dead tab is closed through the connector, not matched by label** (v0.9.62, extension
-0.6.12). Two tabs with one label cannot be told apart from the extension side, so
-`RequestCloseReplacedTab` sends `closeSession` and the extension asks Claude Code to REVEAL the
-session id — Claude Code's own id→panel registry is the one thing that knows which tab is
-which — then closes the tab that became active, and only if it carries one of the session's
-labels and the active tab actually changed. Sent on the mark, then on each sweep while the tab
-is still there, three tries at most (`CloseTabMaxAttempts`), and clicking a `replaced` card sends
-it too instead of revealing the corpse. **Mixed fleet after an upgrade:** the sync carries the
+**The dead tab is closed through the connector, by a UNIQUE label, and a dead session is never
+revealed** (v0.9.62/0.6.12, reshaped in v0.9.63/0.6.13). `RequestCloseReplacedTab` sends
+`closeSession` with the session's labels; the extension closes the one Claude tab carrying one
+of them, refuses when several do, and never calls `claude-vscode.editor.open` for it. The
+0.6.12 design did reveal first (Claude Code's own id→panel registry is the one thing that can
+tell two same-label tabs apart) and was withdrawn the same night: revealing a dead session makes
+Claude Code start a fresh CLI on the old transcript, and the revived session carries on from
+wherever its context says it was — dd17e1bb came back at 00:13:39 on 05-09-2026 and worked
+twenty minutes on the package its successor already held. For the same reason
+`HandleSessionClick` never sends `openSession` for a `replaced` card: it closes the tab when the
+window's extension can, else raises the window and says so in the status line. Sent on the mark,
+then on each sweep while the tab is still there, three tries at most (`CloseTabMaxAttempts`),
+every outcome spending an attempt. **Mixed fleet after an upgrade:** the sync carries the
 extension `Version`, a window keeps the version it loaded with until it reloads, and
-`VscodeConnection.SupportsCloseSession` gates every ask — a window on an older extension is
-not asked (`closeSession NOT sent` once in the log) and falls back to the reveal, i.e. the
-pre-0.9.62 behaviour. Verify a closed-tab report in the extension's Output channel
-("SessionDeck"), which is where its refusals are written, not in the deck log.
+`VscodeConnection.SupportsCloseSession` gates every ask (`closeSession NOT sent` once in the
+log for an older window). The extension's refusals are written in its Output channel
+("SessionDeck"), not in the deck log. **The revival itself is refused outside this repo:**
+`session-relay.ps1` v2.7.0 writes `~/.claude/state/replaced-sessions/<id>.json` after its kill
+and `~/.claude/hooks/replaced-session-guard.ps1` blocks every prompt to such a session, tells it
+to stand down on `SessionStart`, and re-marks the card `replaced` — so a card that flips
+white→grey→white on its own is a ghost being refused, not a bug.
 
 **A prompt delivered by another session** (the relay's message mode, v2.6.0) arrives in the
 transcript with `isMeta=true`, wrapped in `<cross-session-message …>`, with the harness's
