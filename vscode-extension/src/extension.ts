@@ -13,6 +13,8 @@
 // its tab: revealing a dead session makes Claude Code start a fresh CLI on the old transcript,
 // and the revived session carries on from wherever its context says it was (dd17e1bb,
 // 05-09-2026, twenty minutes beside its own successor). An ambiguous label is left alone.
+// "newSession" with AfterSessionId / NoFocus (v0.6.14) opens the tab next to a live session's
+// tab and hands the window's previously active tab back — see openNewSessionQuietly.
 
 import * as vscode from 'vscode';
 import * as net from 'net';
@@ -140,7 +142,15 @@ async function handleCommand(raw: string): Promise<void> {
     } else if (name === 'newSession') {
         // claude-vscode.editor.open without a session id opens a fresh conversation tab.
         // Prompt (T-0116): pre-filled input text for a session opened from a task.
-        await openClaudePanel(undefined, cmd.Maximize ?? cmd.maximize, cmd.Prompt ?? cmd.prompt ?? undefined);
+        // AfterSessionId / NoFocus (0.6.14): placement next to a live session's tab, and the
+        // window's own active tab handed back afterwards — see openNewSessionQuietly.
+        const after: string | undefined = cmd.AfterSessionId ?? cmd.afterSessionId ?? undefined;
+        const noFocus: boolean = !!(cmd.NoFocus ?? cmd.noFocus);
+        if (after || noFocus) {
+            await openNewSessionQuietly(after, noFocus, cmd.Maximize ?? cmd.maximize, cmd.Prompt ?? cmd.prompt ?? undefined);
+        } else {
+            await openClaudePanel(undefined, cmd.Maximize ?? cmd.maximize, cmd.Prompt ?? cmd.prompt ?? undefined);
+        }
     } else if (name === 'closeSession') {
         const sessionId = cmd.SessionId ?? cmd.sessionId;
         const labels: string[] = Array.isArray(cmd.Labels ?? cmd.labels) ? (cmd.Labels ?? cmd.labels) : [];
@@ -150,6 +160,78 @@ async function handleCommand(raw: string): Promise<void> {
     } else {
         out.appendLine(`unknown command: ${name}`);
     }
+}
+
+/// A new session opened FROM a finishing session (the switch-session relay), placed and kept
+/// out of the user's way. Two asks from Shay, 05-09-2026: the new tab opened "wherever it
+/// wants", and opening it took his focus.
+///
+/// Placement: VSCode opens a new editor to the right of the ACTIVE one (the default
+/// `workbench.editor.openPositioning`), so the anchor session's tab is revealed first. The anchor
+/// is the LIVE caller — SessionDeck passes it only for a session that is alive and has a tab in
+/// this window, because revealing a dead session revives it (see closeClaudeTab).
+///
+/// Focus: the deck already leaves the OS window alone (--no-focus). Inside the window, creating
+/// the panel still makes the new tab active, so the tab that was active before is handed back
+/// by index once the new one exists — Claude Code creates its panel with retainContextWhenHidden,
+/// so the new session keeps booting behind it. Only within the same editor group, and only if
+/// that tab is still there; anything else is left as VSCode made it. No layout changes
+/// (maximize collapses side bars) on this path either: nobody asked for a screen.
+async function openNewSessionQuietly(afterSessionId: string | undefined, noFocus: boolean,
+                                     maximize: boolean, prompt: string | undefined): Promise<void> {
+    out.appendLine(`newSession quietly (after=${afterSessionId ?? '-'}, noFocus=${noFocus}, prompt=${prompt ? 'yes' : 'no'})`);
+    const group = vscode.window.tabGroups.activeTabGroup;
+    const previous = group.activeTab;
+    const previousLabel = previous?.label;
+    const previousInput = previous?.input;
+    if (afterSessionId) {
+        try {
+            await vscode.commands.executeCommand('claude-vscode.editor.open', afterSessionId, undefined, vscode.ViewColumn.Active);
+        } catch (e) {
+            out.appendLine(`newSession quietly: revealing the anchor failed (${e}) — opening where VSCode puts it`);
+        }
+    }
+    await openClaudePanel(undefined, noFocus ? false : maximize, prompt);
+    if (!noFocus || !previous) {
+        return;
+    }
+    // Let the tab model catch up with the new panel, then hand the previous tab back.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    const nowGroup = vscode.window.tabGroups.activeTabGroup;
+    if (nowGroup.viewColumn !== group.viewColumn) {
+        out.appendLine('newSession quietly: the new tab landed in another group — leaving the active tab as is');
+        return;
+    }
+    const idx = nowGroup.tabs.findIndex((t) => t === previous ||
+        (t.label === previousLabel && sameInput(t.input, previousInput)));
+    if (idx < 0) {
+        out.appendLine('newSession quietly: the previously active tab is gone — leaving the new one active');
+        return;
+    }
+    if (nowGroup.tabs[idx].isActive) {
+        return;
+    }
+    try {
+        await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', idx);
+        out.appendLine(`newSession quietly: handed the active tab back to "${previousLabel}"`);
+    } catch (e) {
+        out.appendLine(`newSession quietly: could not re-activate "${previousLabel}" (${e})`);
+    }
+}
+
+/// Same editor behind two Tab objects? Compared by what the API exposes, since the model may
+/// hand out a rebuilt object for the same tab.
+function sameInput(a: unknown, b: unknown): boolean {
+    if (a === b) {
+        return true;
+    }
+    if (a instanceof vscode.TabInputWebview && b instanceof vscode.TabInputWebview) {
+        return a.viewType === b.viewType;
+    }
+    if (a instanceof vscode.TabInputText && b instanceof vscode.TabInputText) {
+        return a.uri.toString() === b.uri.toString();
+    }
+    return false;
 }
 
 /// VSCode truncates a long tab label with a trailing '…', so a truncated label matches any

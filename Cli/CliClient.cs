@@ -104,10 +104,12 @@ public static class CliClient
                                                    the next Stop replaces it with the snapshot
         sessiondeck session end    --id <sid> [--reason <r>]
         sessiondeck session open   --id <sid>          focus VSCode + open/resume the session's tab
-        sessiondeck session new    <target> [--prompt "..."] [--group <id>]
+        sessiondeck session new    <target> [--prompt "..."] [--group <id>] [--after <sid>] [--no-focus]
                                                        open a NEW Claude conversation tab in the workspace;
                                                        --group picks WHICH VSCode instance, i.e. which
-                                                       Claude account (see: sessiondeck groups)
+                                                       Claude account (see: sessiondeck groups);
+                                                       --after opens it next to that live session's tab;
+                                                       --no-focus leaves the window and its active tab alone
         sessiondeck session list   [--workspace <name>] [--all]
         all session commands also accept: --transcript <path> --mode <permission_mode>
                                           --dispatcher <sid>  the session that launched this one
