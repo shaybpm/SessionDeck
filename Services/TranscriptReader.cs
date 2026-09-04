@@ -83,7 +83,7 @@ public static class TranscriptReader
     {
         try
         {
-            string? customTitle = null, aiTitle = null, summary = null, firstUserText = null;
+            string? customTitle = null, aiTitle = null, summary = null, firstUserText = null, wrappedFirst = null;
             LostAgents? lost = null;
             var prompts = new List<string>();
             var commands = new List<string>();
@@ -130,7 +130,16 @@ public static class TranscriptReader
                 else if (line.Contains("\"summary\""))
                     summary = TryGetString(line, "summary", "summary") ?? summary;
                 else if (firstUserText == null && line.Contains("\"user\""))
-                    firstUserText = TryReadUserText(line);
+                {
+                    if (TryReadUserText(line) is { } raw)
+                    {
+                        firstUserText = UnwrapCrossSession(raw);
+                        // A delivered prompt: the card reads the inner text, but VSCode may well
+                        // label the tab with the envelope it saw as the first prompt — so the raw
+                        // shape stays a label candidate until an ai-title takes over.
+                        if (!ReferenceEquals(firstUserText, raw)) wrappedFirst = raw;
+                    }
+                }
             }
             string? tabTitle = Shorten(customTitle ?? aiTitle);
             string? autoTitle = Shorten(summary ?? firstUserText);
@@ -150,6 +159,7 @@ public static class TranscriptReader
                 for (int i = commands.Count - 1; i >= 0; i--)
                     if (!candidates.Contains(commands[i])) candidates.Add(commands[i]);
                 if (autoTitle != null && !candidates.Contains(autoTitle)) candidates.Add(autoTitle);
+                if (Shorten(wrappedFirst) is { } w && !candidates.Contains(w)) candidates.Add(w);
             }
 
             return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates, lost);
@@ -414,7 +424,7 @@ public static class TranscriptReader
             using var doc = JsonDocument.Parse(line);
             var root = doc.RootElement;
             if (!root.TryGetProperty("type", out var type) || type.GetString() != "user") return null;
-            if (root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True) return null;
+            bool isMeta = root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True;
             if (!root.TryGetProperty("message", out var message) ||
                 !message.TryGetProperty("content", out var content)) return null;
 
@@ -427,14 +437,44 @@ public static class TranscriptReader
                     .FirstOrDefault(t => t != null),
                 _ => null,
             };
+            if (text == null) return null;
+            // A message another session delivered is written with isMeta=true — Claude Code
+            // files it as harness-injected, which it is, but for THIS session it is the opening
+            // prompt (the relay hands a successor its instruction this way, 05-09-2026: a card
+            // titled "session ca21e0de" was the first one to show why). Every other meta entry
+            // stays rejected.
+            string inner = UnwrapCrossSession(text);
+            bool delivered = !ReferenceEquals(inner, text);
+            if (isMeta && !delivered) return null;
             // Command wrappers (<command-name>, <system-reminder>, caveats) aren't real prompts.
-            if (text == null || text.StartsWith('<') || text.StartsWith("Caveat:")) return null;
+            // Judged on the text INSIDE the envelope; the raw text is returned so the caller can
+            // keep both shapes (see UnwrapCrossSession).
+            if (inner.StartsWith('<') || inner.StartsWith("Caveat:")) return null;
             return text;
         }
         catch
         {
             return null;
         }
+    }
+
+    private static readonly Regex CrossSessionHead =
+        new(@"^\s*(Another Claude session sent a message:\s*)?<cross-session-message\b[^>]*>\s*", RegexOptions.Compiled);
+    // From the closing tag to the END: the harness appends its own guidance to the receiving
+    // session after the envelope ("This came from another Claude session — not typed by your
+    // user…"), which is not part of what was said either.
+    private static readonly Regex CrossSessionTail = new(@"\s*</cross-session-message>[\s\S]*$", RegexOptions.Compiled);
+
+    /// <summary>A prompt another session DELIVERED (the SendMessage tool — since 04-09-2026 the
+    /// way the switch-session relay hands a successor its instruction) is recorded wrapped in an
+    /// envelope naming the sender. The envelope is plumbing: the card's title is what was said,
+    /// so it is stripped here. Returns the input itself when there is no envelope.</summary>
+    private static string UnwrapCrossSession(string text)
+    {
+        var m = CrossSessionHead.Match(text);
+        if (!m.Success) return text;
+        string inner = CrossSessionTail.Replace(text[m.Length..], "");
+        return inner.Length > 0 ? inner : text;
     }
 
     private static string? Shorten(string? title)

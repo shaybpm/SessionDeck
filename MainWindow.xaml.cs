@@ -649,7 +649,15 @@ public partial class MainWindow : Window
     /// is still in VSCode, and the tab list answers that on every sync. Two sweeps rather than
     /// one so a single transient sync (a reconnecting connector's first report) cannot fire
     /// it. Counted in swept time like the others.</summary>
-    private static readonly TimeSpan ReplacedTtl = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ReplacedTtl = TimeSpan.FromSeconds(5);
+
+    /// <summary>How the deck asks the extension to close a `replaced` session's dead tab:
+    /// at most this many times, this far apart. Each ask reveals the tab first (Claude Code's
+    /// id→panel registry is the only thing that can tell the dead tab from a live one with
+    /// the same label), so an ask that keeps failing would keep flicking the user's active
+    /// tab — three tries and the tab is left for him, with the card still saying so.</summary>
+    private const int CloseTabMaxAttempts = 3;
+    private static readonly TimeSpan CloseTabRetry = TimeSpan.FromSeconds(20);
 
     /// <summary>In a MANUAL reconcile, how recently a session must have spoken to be spared
     /// on the "window is up but no tab answers" shape. That shape rests on matching a tab
@@ -746,7 +754,16 @@ public partial class MainWindow : Window
             foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).ToList())
             {
                 bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
-                if (!candidate) { s.OrphanSince = null; continue; }
+                if (!candidate)
+                {
+                    s.OrphanSince = null;
+                    // Not a candidate because its tab is still there. For a `replaced` session
+                    // that tab is a corpse the user would otherwise have to find and close by
+                    // hand (Shay, 04-09-2026: "יהיה נחמד אם הניקיון יהיה אוטומטי") — ask the
+                    // extension to close it, a few times at most.
+                    if (s.Status == SessionStatus.Replaced && s.OpenAsTab) RequestCloseReplacedTab(ws, s);
+                    continue;
+                }
                 // A `replaced` session is known dead (see SessionStatus): the relay killed its
                 // process after the successor was up. The TTLs below exist to protect a session
                 // that might still be alive; this one cannot be, so it waits only ReplacedTtl and
@@ -1692,6 +1709,15 @@ public partial class MainWindow : Window
     /// <summary>Hook details (prompts, messages) become one bounded display line.</summary>
     private static string Sanitize(string s)
     {
+        // A prompt delivered by ANOTHER session (the SendMessage tool — how the switch-session
+        // relay hands a successor its instruction since v2.6.0) reaches the hooks wrapped in
+        // an envelope naming the sender's pipe. The envelope is plumbing; the card shows what
+        // was said.
+        // Everything from the closing tag on is the harness's own guidance to the receiving
+        // session ("This came from another Claude session…"), not the message.
+        s = Regex.Replace(s, @"^\s*Another Claude session sent a message:\s*", "");
+        s = Regex.Replace(s, @"^\s*<cross-session-message\b[^>]*>\s*", "");
+        s = Regex.Replace(s, @"\s*</cross-session-message>[\s\S]*$", "");
         string oneLine = Regex.Replace(s, @"\s+", " ").Trim();
         return oneLine.Length <= 300 ? oneLine : oneLine[..299] + "…";
     }
@@ -1866,6 +1892,14 @@ public partial class MainWindow : Window
         ApplyHookInfo(session, info);
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
+        // Marked `replaced` just now: the mark changes its place in the tab correlation (it
+        // picks last), so re-run that before reading OpenAsTab — and if its dead tab is still
+        // open, start closing it without waiting for the next 10s sweep.
+        if (status == SessionStatus.Replaced && !keepMark)
+        {
+            ReapplyTabCorrelation(ws);
+            if (session.OpenAsTab) RequestCloseReplacedTab(ws, session);
+        }
         // The user is already looking at this session's tab — don't start blinking at them.
         if (ActiveTabSession(ws) == session)
         {
@@ -2040,6 +2074,25 @@ public partial class MainWindow : Window
         // bind (a title match, which can't tell two windows on one folder apart) is not
         // necessarily the window the session lives in.
         var target = FindConnector(ws, session);
+        // A `replaced` card's session is dead and the only thing left of it is a tab. When
+        // the window's extension can close tabs, the click does what the card says — "close
+        // its tab" — instead of revealing a corpse for the user to close by hand (and
+        // instead of letting Claude Code resume it, which a reveal sometimes does: 8cb622da
+        // came back to life at 23:47:01 on 04-09-2026 from exactly such a click). An older
+        // extension falls through to the reveal, which is still the way to FIND the tab.
+        if (session.Status == SessionStatus.Replaced && session.OpenAsTab &&
+            target is { SupportsCloseSession: true })
+        {
+            session.CloseTabAttempts = 0;    // a click is a fresh request, not a retry
+            session.CloseTabRequestedAt = null;
+            var (closing, why) = RequestCloseReplacedTab(ws, session, target);
+            LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" " +
+                                    (closing ? "closeSession sent" : $"closeSession FAILED: {why}"));
+            SetStatus(closing
+                ? $"Closing the dead tab of \"{session.DisplayTitle}\" — the card goes once it is gone"
+                : $"\"{session.DisplayTitle}\" — {why}");
+            return;
+        }
         RebindToConnectorWindow(ws, target);
         FocusWorkspace(ws);
 
@@ -2093,6 +2146,7 @@ public partial class MainWindow : Window
         conn.WorkspacePath = sync.Workspace ?? "";
         conn.Tabs = sync.Tabs;
         conn.Focused = sync.Focused;
+        conn.Version = sync.Version ?? "";
         if (sync.Focused) conn.LastFocusedAt = DateTime.Now;
         CorrelateConnectorWindow(conn);
         if (isNew)
@@ -2681,6 +2735,47 @@ public partial class MainWindow : Window
             _connectors.Remove(conn);
             return (false, "connector connection lost");
         }
+        return (true, "");
+    }
+
+    /// <summary>Ask the window holding a `replaced` session's dead tab to close it. The
+    /// extension reveals the tab through Claude Code's own session→panel registry (the only
+    /// thing that can tell it from a live tab with the same label), checks the tab that
+    /// became active carries one of this session's labels, and closes that one. Bounded by
+    /// CloseTabMaxAttempts / CloseTabRetry; a window whose extension predates the command
+    /// is not asked at all — it would drop the command silently and the deck would think it
+    /// had tried.</summary>
+    private (bool, string) RequestCloseReplacedTab(WorkspaceViewModel ws, SessionViewModel session,
+                                                   VscodeConnection? conn = null)
+    {
+        if (session.CloseTabAttempts >= CloseTabMaxAttempts) return (false, "gave up closing its tab after 3 tries — close it by hand");
+        if (session.CloseTabRequestedAt is { } last && DateTime.Now - last < CloseTabRetry) return (false, "close already requested");
+        // Every outcome below spends an attempt, not only a send: a window whose extension
+        // cannot close tabs would otherwise be re-asked on every 10s sweep for as long as the
+        // dead tab lives, which is what the route log showed on the first night (9004cab1,
+        // one line every ten seconds, 05-09-2026).
+        session.CloseTabAttempts++;
+        session.CloseTabRequestedAt = DateTime.Now;
+        conn ??= FindConnector(ws, session);
+        if (conn == null) return (false, "no VSCode connector for this workspace");
+        if (!conn.SupportsCloseSession)
+        {
+            string why = $"the VSCode window's SessionDeck extension ({(conn.Version.Length > 0 ? conn.Version : "pre-0.6.12")}) cannot close tabs — reload that window to update it, or close the tab by hand";
+            if (session.CloseTabAttempts == 1)
+                LogService.Info("close", $"session={session.SessionId} closeSession NOT sent to pid={conn.Pid}: {why}");
+            return (false, why);
+        }
+        var labels = new List<string>(session.LabelCandidates);
+        foreach (var t in new[] { session.CustomTitle, session.TabTitle, session.AutoTitle, session.MatchedTabLabel })
+            if (t is { Length: > 0 } && !labels.Contains(t)) labels.Add(t);
+        if (labels.Count == 0) return (false, "the session has no title to recognise its tab by");
+        if (!conn.TrySend(new { Cmd = "closeSession", SessionId = session.SessionId, Labels = labels }))
+        {
+            _connectors.Remove(conn);
+            return (false, "connector connection lost");
+        }
+        LogService.Info("close", $"session={session.SessionId} closeSession → pid={conn.Pid} " +
+                                 $"(attempt {session.CloseTabAttempts}, ext {conn.Version}) labels=[{string.Join(" | ", labels)}]");
         return (true, "");
     }
 

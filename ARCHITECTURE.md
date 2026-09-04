@@ -109,9 +109,12 @@ every tooltip, menu item and combo item.
 
 ### Outside the app
 
-`vscode-extension/src/extension.ts` (253 lines) is the whole extension. It pushes a sync on
-tab/branch/focus change, heartbeats every 2s while focused, and delegates opening a session
-to Claude Code's own `claude-vscode.editor.open` with a terminal fallback.
+`vscode-extension/src/extension.ts` (370 lines) is the whole extension. It pushes a sync on
+tab/branch/focus change (carrying its own `Version` since 0.6.12), heartbeats every 2s while
+focused, and delegates opening a session to Claude Code's own `claude-vscode.editor.open` with a
+terminal fallback. `closeSession` (0.6.12) rides on that same reveal: Claude Code's id→panel
+registry brings the named session's tab to the front, and the tab that became active is closed
+— the only way to close a dead session's tab when a live one carries the same label.
 `hooks/sessiondeck-hook.ps1` translates each hook event into one CLI call, swallows every
 failure, and must stay PowerShell 5.1 compatible and UTF-8 **with BOM**.
 
