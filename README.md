@@ -2,7 +2,7 @@
 
 **A Windows control deck for your running Claude Code sessions.**
 
-SessionDeck tiles every VSCode window into a live grid and shows each Claude Code session inside it as a status card — grey when idle, blue while working, blinking orange when Claude is waiting for you, purple when the turn is done, green when the session has been wrapped up for good. One click focuses the window, activates the right tab, and clears the alert.
+SessionDeck tiles every VSCode window into a live grid and shows each Claude Code session inside it as a status card — grey when idle, blue while working, blinking orange when Claude is waiting for you, purple when the turn is done, green when the session has been wrapped up for good, white when it handed off to a successor and closed itself. One click focuses the window, activates the right tab, and clears the alert.
 
 **Built for one setup, on purpose:** Claude Code running inside **VSCode** — through its [Claude Code extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) — on **Windows 10/11**. A session is a VSCode tab here, and that assumption runs through the whole tool.
 
@@ -26,7 +26,7 @@ Click it, and the deck focuses the VSCode window, reveals that session's tab, an
 
 - **Live window grid** — real DWM thumbnails (`DwmRegisterThumbnail`), rendered by the Windows compositor. No screen capture, no code injection, near-zero CPU.
 - **Workspace cards** — one card per VSCode workspace, showing the project name and the current git branch. Workspaces are persistent: a card survives closing the window and re-binds automatically when a matching window reappears.
-- **Session cards** — one sub-card per Claude Code session, with a status-coloured border driven by Claude Code hooks (`idle` / `working` / `waiting` / `done` / `error`), plus `he` for a session you have closed out yourself. The status → colour/blink mapping lives in config, not in code.
+- **Session cards** — one sub-card per Claude Code session, with a status-coloured border driven by Claude Code hooks (`idle` / `working` / `waiting` / `done` / `error`), plus two set from outside: `he` for a session you have closed out yourself, and `replaced` for one that handed its work to a new session and was then killed — its dead tab is the only thing left, and the card is swept the moment that tab is closed. The status → colour/blink mapping lives in config, not in code.
 - **Click to resume** — clicking a session card focuses the VSCode window, activates that session's tab (via the companion extension), and acknowledges the blink. A closed session resumes with its full history.
 - **Windows notifications** — when the deck itself might be buried, a session that needs attention escalates to a native notification and a taskbar badge — and both withdraw the moment the cause is gone, including when you handle it outside the deck.
 - **Reserved Zone** — SessionDeck can claim a quarter, half, all, or any custom fraction (e.g. `2/7`) of a monitor as an AppBar, so maximized windows and snap never cover it. While zoned, the window is locked in place until the zone is turned off.
@@ -161,7 +161,7 @@ sessiondeck install-hooks [--settings <path>] [--dry-run]   # register the Claud
 sessiondeck uninstall-hooks              # remove them (both run locally, no app needed)
 
 sessiondeck session start  --id <session_id> --workspace <name> [--title "..."]
-sessiondeck session status --id <session_id> --state working|waiting|done|he|error|idle
+sessiondeck session status --id <session_id> --state working|waiting|done|he|replaced|error|idle
 sessiondeck session open   --id <session_id>
 sessiondeck session end    --id <session_id>
 sessiondeck session new    <target> [--prompt "..."] [--group <id>]

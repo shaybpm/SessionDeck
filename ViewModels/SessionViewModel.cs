@@ -6,7 +6,18 @@ using SessionDeck.Services;
 
 namespace SessionDeck.ViewModels;
 
-public enum SessionStatus { Idle, Working, Waiting, Done, Error, He }
+/// <summary>
+/// <c>Replaced</c> (this fork, v0.9.61): the session handed its work to a successor and its own
+/// process was then killed — the switch-session relay does exactly that. A killed process
+/// fires no <c>SessionEnd</c>, so without an explicit mark the card kept whatever its last
+/// turn left (usually <c>done</c>) and was indistinguishable from a live session waiting for
+/// the user, while its dead tab still sat in VSCode under the same label as the successor's.
+/// Like <c>he</c> it is set from outside only (<c>session status --state replaced</c>) and no
+/// quieter hook may overwrite it; unlike <c>he</c> the session behind it is GONE, so the
+/// scanner never infers a wait for it and the orphan sweep closes it within seconds of its
+/// tab disappearing instead of after the fifteen-minute TTL.
+/// </summary>
+public enum SessionStatus { Idle, Working, Waiting, Done, Error, He, Replaced }
 
 public static class SessionStatusNames
 {
@@ -18,6 +29,7 @@ public static class SessionStatusNames
         SessionStatus.Done => "done",
         SessionStatus.Error => "error",
         SessionStatus.He => "he",
+        SessionStatus.Replaced => "replaced",
         _ => "idle",
     };
 
@@ -41,6 +53,7 @@ public static class SessionStatusNames
             "done" => SessionStatus.Done,
             "error" => SessionStatus.Error,
             "he" => SessionStatus.He,
+            "replaced" => SessionStatus.Replaced,
             _ => (SessionStatus)(-1),
         };
         return (int)status >= 0;
@@ -274,7 +287,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     public bool OpenAsTab
     {
         get => _openAsTab;
-        set { if (_openAsTab != value) { _openAsTab = value; Raise(); } }
+        // StatusDisplay reads it for a `replaced` card: "close its tab" is only said while a
+        // tab is actually there to close.
+        set { if (_openAsTab != value) { _openAsTab = value; Raise(); Raise(nameof(StatusDisplay)); Raise(nameof(TooltipText)); } }
     }
 
     // Trimmed by request 2026-07-19: previously also showed SessionId, source,
@@ -293,6 +308,10 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (LastEventAt is { } le) lines.Add($"last event: {le:HH:mm d'/'M}");
             if (EndedAt is { } ea) lines.Add($"ended: {ea:HH:mm d'/'M}" + (_endReason != null ? $" ({_endReason})" : ""));
             if (_endedTabOpen) lines.Add("its VSCode tab is still open — nothing is running behind it");
+            if (!_closed && _status == SessionStatus.Replaced)
+                lines.Add(_openAsTab
+                    ? "closed itself after handing off to a new session — nothing runs behind its tab; close the tab and this card goes away"
+                    : "closed itself after handing off to a new session — this card goes away on the next sweep");
             return string.Join(Environment.NewLine, lines);
         }
     }
@@ -500,9 +519,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// <summary>What the card shows. Same states, friendlier words; see ToDisplay.
     /// "closed (other)" is the protocol wording and answers the wrong question for a card
     /// left standing only because its tab is still open — there, say what the user needs to
-    /// decide: nothing is running behind that tab.</summary>
+    /// decide: nothing is running behind that tab. A `replaced` card whose tab is still open
+    /// says what to DO about it, for the same reason.</summary>
     public string StatusDisplay =>
         Closed ? (EndedTabOpen ? "ended · tab open" : ClosedLabel)
+               : _status == SessionStatus.Replaced && _openAsTab ? "replaced · close its tab"
                : SessionStatusNames.ToDisplay(_status);
 
     private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");

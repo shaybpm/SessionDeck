@@ -643,6 +643,14 @@ public partial class MainWindow : Window
     /// longer just leaves the deck showing sessions whose host has exited.</summary>
     private static readonly TimeSpan DeadWindowTtl = TimeSpan.FromMinutes(2);
 
+    /// <summary>How long a `replaced` session whose tab is gone waits before it is closed. Its
+    /// process is already dead — that is what the status means — so the fifteen-minute TTL
+    /// and the silence guard protect nothing here; the only question is whether the dead tab
+    /// is still in VSCode, and the tab list answers that on every sync. Two sweeps rather than
+    /// one so a single transient sync (a reconnecting connector's first report) cannot fire
+    /// it. Counted in swept time like the others.</summary>
+    private static readonly TimeSpan ReplacedTtl = TimeSpan.FromSeconds(15);
+
     /// <summary>In a MANUAL reconcile, how recently a session must have spoken to be spared
     /// on the "window is up but no tab answers" shape. That shape rests on matching a tab
     /// LABEL, and the labels lag: a new session's tab already shows its ai-title while the
@@ -739,11 +747,16 @@ public partial class MainWindow : Window
             {
                 bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
                 if (!candidate) { s.OrphanSince = null; continue; }
+                // A `replaced` session is known dead (see SessionStatus): the relay killed its
+                // process after the successor was up. The TTLs below exist to protect a session
+                // that might still be alive; this one cannot be, so it waits only ReplacedTtl and
+                // skips the silence guard — its own `replaced` mark IS its last event, seconds ago.
+                bool replaced = s.Status == SessionStatus.Replaced;
                 // A manual reconcile skips the wait on the two shapes that have evidence. The
                 // third — a card that never had a VSCode window at all — has none, so its guard
                 // stands even here: a terminal session or a headless run must not be swept away
                 // by a button press. ManualReconcileGrace covers the label-lag on the first.
-                bool skipWait = force && (windowDied ||
+                bool skipWait = force && (windowDied || replaced ||
                                           (connected && DateTime.Now - LastActivity(s) >= ManualReconcileGrace));
                 if (!skipWait)
                 {
@@ -756,18 +769,19 @@ public partial class MainWindow : Window
                     // Counting from a sweep costs one extra 10s tick and cannot be fooled by a
                     // clock that jumped.
                     s.OrphanSince ??= DateTime.Now;
-                    if (DateTime.Now - s.OrphanSince < (windowDied ? DeadWindowTtl : OrphanSessionTtl)) continue;
+                    var ttl = replaced ? ReplacedTtl : windowDied ? DeadWindowTtl : OrphanSessionTtl;
+                    if (DateTime.Now - s.OrphanSince < ttl) continue;
                     // The silence guard is the part the dead-window shape drops: a resume fired
                     // on the way out makes recent noise a LIAR about whether anyone is home.
-                    if (!windowDied && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
+                    if (!windowDied && !replaced && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
                 }
-                // Which of the two shapes fired, and against what — "ended (orphaned)" alone
+                // Which of the shapes fired, and against what — "ended (orphaned)" alone
                 // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
-                LogService.Info("status", $"session={s.SessionId} orphan close ws=\"{ws.DisplayTitle}\" " +
+                LogService.Info("status", $"session={s.SessionId} {(replaced ? "replaced" : "orphan")} close ws=\"{ws.DisplayTitle}\" " +
                     (connected ? $"no tab matched tabs=[{string.Join(" | ", ws.ClaudeTabLabels)}]"
                      : windowDied ? $"its VSCode window closed at {ws.WindowGoneAt:HH:mm:ss}"
                      : "no VSCode window"));
-                EndSession(s.SessionId, new HookInfo(Reason: "orphaned"));
+                EndSession(s.SessionId, new HookInfo(Reason: replaced ? "replaced" : "orphaned"));
                 closed++;
             }
         }
@@ -864,6 +878,10 @@ public partial class MainWindow : Window
     private bool EvaluatePendingWait(WorkspaceViewModel ws, SessionViewModel session)
     {
         if (session.Closed) return false;
+        // A `replaced` session's process was killed; a tool call it left unanswered in the
+        // transcript is a corpse, not a dialog, and ageing it into `waiting` would blink orange
+        // at a session nobody can answer.
+        if (session.Status == SessionStatus.Replaced) return false;
         var call = session.PendingCall;
 
         // A PermissionRequest hook reported an open dialog. PendingCall may not show it
@@ -961,9 +979,11 @@ public partial class MainWindow : Window
         LogService.Info("status",
             $"session={session.SessionId} lost {lost.Count} background agent(s) (transcript)");
         // `waiting` is a live block on the user and outranks a post-mortem; `he` is a
-        // deliberate close-out that only real activity may clear. Everything else goes red:
-        // work was started and never finished, and nothing else on the card can say so.
-        if (session.Status is SessionStatus.Waiting or SessionStatus.He) return true;
+        // deliberate close-out that only real activity may clear, and `replaced` a deliberate
+        // kill — agents dying with that process is expected, and the ⚠ chip already says it.
+        // Everything else goes red: work was started and never finished, and nothing else on
+        // the card can say so.
+        if (session.Status is SessionStatus.Waiting or SessionStatus.He or SessionStatus.Replaced) return true;
         session.Status = SessionStatus.Error;
         session.LastEventAt = DateTime.Now;
         return true;
@@ -1576,9 +1596,11 @@ public partial class MainWindow : Window
             //   resume / compact: the same conversation continues. Keep the status and the
             //     agent count; the session never stopped.
             //   startup / clear / anything else: genuinely new or wiped. Reset.
-            // `he` is the exception either way: a SessionStart clears it by documented rule
-            // (hooks/README.md), because the session is demonstrably back in use.
-            bool continues = info.Source is "resume" or "compact" && fs.Status != SessionStatus.He;
+            // `he` and `replaced` are the exception either way: a SessionStart clears them by
+            // documented rule (hooks/README.md), because the session is demonstrably back in use
+            // — for `replaced`, a new process resumed the dead one's transcript.
+            bool continues = info.Source is "resume" or "compact" &&
+                             fs.Status is not (SessionStatus.He or SessionStatus.Replaced);
             if (!continues)
             {
                 fs.Status = SessionStatus.Idle;
@@ -1798,9 +1820,9 @@ public partial class MainWindow : Window
         ws = EnsureSessionHome(ws, session, info.Transcript);
         if (session.Closed)
         {
-            // An auto-closed session (orphan/stale sweep) that emits a hook is demonstrably
-            // alive — the sweep guessed wrong; revive it. User/hook closes stay final.
-            if (session.EndReason is "orphaned" or "stale")
+            // An auto-closed session (orphan/stale/replaced sweep) that emits a hook is
+            // demonstrably alive — the sweep guessed wrong; revive it. User/hook closes stay final.
+            if (session.EndReason is "orphaned" or "stale" or "replaced")
             {
                 session.Closed = false;
                 session.EndedAt = null;
@@ -1823,13 +1845,15 @@ public partial class MainWindow : Window
         // A `working` this method produced itself out of a `done` is still that same Stop
         // hook, and has to be held off `he` exactly like the `done` it came from — otherwise
         // a session closed out while one of its agents is still in flight loses its green
-        // mark to the very Stop that follows the `he` command, which is the bug keepHe was
+        // mark to the very Stop that follows the `he` command, which is the bug keepMark was
         // written for. Real activity from a hook (a prompt, a wait, an error) still clears it.
-        bool keepHe = prev == SessionStatus.He &&
-                      (status is SessionStatus.Done or SessionStatus.Idle || agentsHeldTurn);
-        if (!keepHe) session.Status = status;
-        if (keepHe)
-            LogService.Info("status", $"session={sessionId} kept he (ignored →{SessionStatusNames.ToName(status)})");
+        // `replaced` is held the same way: the relay marks it right after the kill, and while
+        // no hook can follow a dead process, a Stop already in flight at that moment still can.
+        bool keepMark = prev is (SessionStatus.He or SessionStatus.Replaced) &&
+                        (status is SessionStatus.Done or SessionStatus.Idle || agentsHeldTurn);
+        if (!keepMark) session.Status = status;
+        if (keepMark)
+            LogService.Info("status", $"session={sessionId} kept {SessionStatusNames.ToName(prev)} (ignored →{SessionStatusNames.ToName(status)})");
         else if (prev != status)
             LogService.Info("status", $"session={sessionId} {SessionStatusNames.ToName(prev)}→{SessionStatusNames.ToName(status)} ws=\"{ws.DisplayTitle}\"");
         // PermissionRequest fires when the dialog opens, but Claude Code has no matching
@@ -1855,8 +1879,8 @@ public partial class MainWindow : Window
             // scan callback re-runs the correlation and acknowledges (issue 2026-07-20).
             RefreshTranscriptTitles();
         AfterSessionChange(ws, session);
-        return keepHe
-            ? ($"session {sessionId} stays he (ignored {SessionStatusNames.ToName(status)})", true)
+        return keepMark
+            ? ($"session {sessionId} stays {SessionStatusNames.ToName(prev)} (ignored {SessionStatusNames.ToName(status)})", true)
             : ($"session {sessionId} → {SessionStatusNames.ToName(status)}", true);
     }
 
@@ -2229,7 +2253,15 @@ public partial class MainWindow : Window
         foreach (var label in ws.ClaudeTabLabels)
             remaining[label] = remaining.TryGetValue(label, out int n) ? n + 1 : 1;
 
-        foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).OrderByDescending(LastActivity))
+        // A `replaced` session picks LAST, whatever its activity says. Its successor usually
+        // carries the very same label (the relay hands over "execute item #1.0" and the new tab
+        // is titled by that prompt), and the replaced one's own mark is the most recent event
+        // on the card — so by activity alone the dead session would claim the one surviving
+        // tab and leave the LIVE successor to the orphan sweep. Picking last, it gets a tab only
+        // while there is a surplus one, i.e. exactly while its dead tab is still open.
+        foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom)
+                                     .OrderBy(s => s.Status == SessionStatus.Replaced ? 1 : 0)
+                                     .ThenByDescending(LastActivity))
         {
             string? matched = null;
             foreach (var label in ws.ClaudeTabLabels)
@@ -2884,6 +2916,7 @@ public partial class MainWindow : Window
         SessionStatus.Waiting => "waiting for you",
         SessionStatus.Done => "your turn",
         SessionStatus.He => "wrapped up (HE)",
+        SessionStatus.Replaced => "replaced (closed itself)",
         SessionStatus.Error => "error",
         _ => SessionStatusNames.ToName(status),
     };
