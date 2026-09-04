@@ -408,6 +408,20 @@ if ((Test-Path $flag) -and ((Get-Content $flag -Raw).Trim() -eq '0')) { exit 0 }
   good, and it is the one state a hook cannot overwrite: the `Stop` hook of the very turn
   that set it arrives a second later and would otherwise undo it. Anything that shows real
   activity (`working` / `waiting` / `error`), or a `SessionStart` on the same id, clears it.
+- `replaced` state (steady white, v0.9.61): **no hook drives it either**, and none CAN — it marks
+  a session whose process was killed after it handed its work to a successor (the switch-session
+  relay does this: opens the new tab, waits for the new session to be alive, kills the caller).
+  A killed process fires no `SessionEnd`, so until this state existed the card kept whatever
+  its last turn left, usually `done`, and read as a live session waiting for you — while its
+  dead tab sat in VSCode under the same label as the successor's. The relay sets it right after
+  the kill with `session status --state replaced --detail "replaced by <name>"`. It is held
+  against `done` / `idle` like `he`, the transcript scanner never infers a wait for it (an
+  unanswered tool call in a dead session's transcript is a corpse, not a dialog), and the orphan
+  sweep closes it ~15s after its tab is gone instead of after the 15-minute TTL — the TTL protects
+  sessions that might still be alive, and this one cannot be. In tab correlation it picks LAST,
+  so the successor carrying the same label keeps the surviving tab and the replaced session gets
+  one only while there is a surplus, i.e. exactly while its dead tab is still open. A
+  `SessionStart` on the same id (someone resumed the dead transcript) clears it.
 - `error` state: `StopFailure` gives it a dedicated hook. Claude Code exposes no generic error event, so anything that isn't a failed turn stays unmapped.
   The state is still available from the CLI (`--state error`) for other scripts; SessionEnd's `reason` is stored and displayed.
 - Manual check without Claude Code:

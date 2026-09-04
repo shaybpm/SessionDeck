@@ -193,7 +193,7 @@ public sealed class CommandExecutor
                 if (!a.Options.TryGetValue("id", out var id)) return Err("session status requires --id <session_id>");
                 if (!a.Options.TryGetValue("state", out var stateStr) ||
                     !SessionStatusNames.TryParse(stateStr, out var status))
-                    return Err("session status requires --state working|waiting|done|he|error|idle");
+                    return Err("session status requires --state working|waiting|done|he|replaced|error|idle");
                 var (msg, ok) = _window.SetSessionStatus(id, status,
                     a.Options.GetValueOrDefault("workspace", ""), HookInfoFrom(a));
                 return ok ? Ok(msg) : Err(msg);

@@ -128,6 +128,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         SessionStatus.Done => 2,
         SessionStatus.He => 3,      // finished for real — the least urgent thing to look at
         SessionStatus.Working => 4,
+        SessionStatus.Replaced => 6, // a dead session with a tab to close — after even idle
         _ => 5,
     };
 

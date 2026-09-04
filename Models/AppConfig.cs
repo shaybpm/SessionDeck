@@ -476,5 +476,11 @@ public class AppConfig
         // session for real, so it takes the green `done` used to carry, and `done` — which
         // now only means "the turn stopped" — moves to purple.
         ["he"] = new StatusStyle { Color = "green", AltColor = "black", UntilAcknowledge = true },
+        // The session handed off to a successor and its process was killed (the switch-session
+        // relay). Nothing is running behind its tab; the only thing left to do is close that
+        // tab, so the card says so in a colour no live status uses, and does not blink — a
+        // dead session is not an alert. New key, no migration: a saved map without it falls
+        // back to this default on load and is written out with it on the next save.
+        ["replaced"] = new StatusStyle { Color = "white" },
     };
 }

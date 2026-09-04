@@ -93,9 +93,12 @@ public static class CliClient
 
         session commands (called by the Claude Code hooks):
         sessiondeck session start  --id <sid> --workspace <cwd path or name> [--title "..."] [--source <s>]
-        sessiondeck session status --id <sid> --state working|waiting|done|error|idle [--detail "..."]
+        sessiondeck session status --id <sid> --state working|waiting|done|he|replaced|error|idle [--detail "..."]
                                    [--agents <n>]  subagents still running in the background; a
                                                    done with n>0 lands on working, not "your turn"
+                                   he       = closed out for good by its end-of-session routine (no hook sets it)
+                                   replaced = handed off to a successor and its process was killed;
+                                              the card is swept as soon as its dead tab is closed
         sessiondeck session agents --id <sid> --launched   one background subagent was just
                                                    dispatched; +1 to the card's 🤖 chip until
                                                    the next Stop replaces it with the snapshot

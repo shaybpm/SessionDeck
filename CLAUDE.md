@@ -166,6 +166,20 @@ otherwise undo it within a second. `working` / `waiting` / `error`, or a `Sessio
 the same id, do clear it. If an `he` card goes purple on its own, that ordering is where to
 look, and the log line to grep for is `kept he`.
 
+**`replaced` is its sibling for a session that no longer exists** (this fork, v0.9.61). The
+switch-session relay (`~/.claude/scripts/session-relay.ps1`) opens a successor tab, waits for
+the new session to be alive, kills the caller's process and only then marks the caller
+`replaced` — a killed process fires no `SessionEnd`, so before this the card sat on `done`
+looking like a live session waiting for Shay, next to a dead tab carrying the same label as
+the successor's. Three things differ from `he`, all because the process is known dead: the
+transcript scanner never infers `waiting` for it (`EvaluatePendingWait` returns early), the
+orphan sweep closes it after `ReplacedTtl` (15s of swept time) with no silence guard and logs
+`replaced close`, and in `ReapplyTabCorrelation` it picks a tab LAST so the live successor with
+the same label is never left to the sweep. The hold against `done`/`idle` is the same
+`keepMark` as `he`, logged `kept replaced`. The dead tab itself is not closed by the deck: two
+tabs with one label cannot be told apart from the extension side, and closing the live one
+is the worse failure.
+
 When tuning any detection: **precision over coverage**. A false alarm teaches the user to
 ignore the deck, which costs more than a missed one. Measure the false-alarm rate before
 lowering a threshold.
@@ -178,7 +192,7 @@ bound by. If he wants one changed, change it.
 
 | # | Decision |
 |---|---|
-| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. **Changed in this fork (v0.9.6):** `done` moved to purple and green went to a new terminal status, `he` — see below. |
+| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. **Changed in this fork (v0.9.6):** `done` moved to purple and green went to a new terminal status, `he` — see below. **v0.9.61:** a second terminal status, `replaced` = steady white, for a session killed after handing off to a successor. |
 | 12 | **A session that closes** disappears from the normal view and stays available in the card's expanded view (▼) with a resume option. Retention: the last ~20 closed sessions per workspace (`ClosedSessionRetention`). |
 | 13 | **VSCode only in the UI.** The engine underneath stays generic (any top-level window can be tracked, pinned and driven), but the UI and the flows are filtered to VSCode. Terminal support: maybe some day, not now. |
 | 15 | **The app is a control deck for Claude Code sessions**, not a generic window grid. Tile data from the pre-cards era is still round-tripped in config as a legacy field so nothing is lost, but it is never displayed. |
