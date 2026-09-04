@@ -2803,13 +2803,21 @@ public partial class MainWindow : Window
     /// the click, or the CLI's --group). It is never approximated: a group whose instance is
     /// not up gets launched, or waited for, but the session does not quietly open in another
     /// account's window - which is the whole reason the groups exist.
+    /// <paramref name="focus"/> false (the CLI's --no-focus) leaves the VSCode window where it is
+    /// and asks the extension to hand the window's previously active tab back once the new tab
+    /// exists: a handoff fired from inside a finishing session must not pull the user out of
+    /// whatever he is typing. <paramref name="afterSessionId"/> (--after) names the session
+    /// whose tab the new one should sit next to — VSCode opens a new editor to the right of the
+    /// ACTIVE one, so the extension reveals that tab first; passed on only when that session is
+    /// alive and has a tab, because revealing a dead session revives it.</summary>
     public (bool, string) NewSessionInVscode(WorkspaceViewModel ws, string? prompt = null,
-                                             SessionGroupConfig? group = null)
+                                             SessionGroupConfig? group = null, bool focus = true,
+                                             string? afterSessionId = null)
     {
         var conn = group != null ? ConnectorInGroup(ws, group) : FindConnector(ws);
         if (group != null && conn == null) return QueueGroupSession(ws, prompt, group);
         RebindToConnectorWindow(ws, conn);      // same folder open twice: raise the right window
-        FocusWorkspace(ws);
+        if (focus) FocusWorkspace(ws);
         if (conn == null)
         {
             if (ws.Path.Length > 0)
@@ -2817,7 +2825,17 @@ public partial class MainWindow : Window
             SetStatus("VSCode is starting — the new session will open once the connector is up");
             return (false, "no VSCode connector yet — request queued");
         }
-        if (!conn.TrySend(new { Cmd = "newSession", Prompt = prompt, Maximize = Vm.OpenSessionMaximized }))
+        // The anchor tab is only ever a LIVE session's, matched to a tab in THIS window: the
+        // extension finds it by asking Claude Code to reveal the session id, and a reveal of a
+        // dead session starts it again (05-09-2026, dd17e1bb).
+        string? after = null;
+        if (afterSessionId is { Length: > 0 } &&
+            Vm.FindSession(afterSessionId) is { } anchor && ReferenceEquals(anchor.Item1, ws) &&
+            !anchor.Item2.Closed && anchor.Item2.Status != SessionStatus.Replaced && anchor.Item2.OpenAsTab &&
+            conn.Tabs.Any(t => TabLabelMatches(t.Label, anchor.Item2)))
+            after = afterSessionId;
+        if (!conn.TrySend(new { Cmd = "newSession", Prompt = prompt, Maximize = focus && Vm.OpenSessionMaximized,
+                                NoFocus = !focus, AfterSessionId = after }))
         {
             _connectors.Remove(conn);
             return (false, "connector connection lost");
@@ -2826,7 +2844,9 @@ public partial class MainWindow : Window
             ? $"Opening a new session in \"{ws.DisplayTitle}\""
             : $"Opening a new session in {group.Name}");
         LogService.Info("group", $"new session → \"{group?.Name ?? ws.DisplayTitle}\" " +
-                                 $"pid={conn.Pid} window-pid={conn.OwnerPid}");
+                                 $"pid={conn.Pid} window-pid={conn.OwnerPid}" +
+                                 (focus ? "" : " no-focus") +
+                                 (after != null ? $" after={after[..8]}" : afterSessionId != null ? " after=<anchor has no live tab here, ignored>" : ""));
         return (true, "");
     }
 

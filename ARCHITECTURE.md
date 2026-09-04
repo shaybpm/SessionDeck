@@ -114,7 +114,9 @@ tab/branch/focus change (carrying its own `Version` since 0.6.12), heartbeats ev
 focused, and delegates opening a session to Claude Code's own `claude-vscode.editor.open` with a
 terminal fallback. `closeSession` (0.6.12) rides on that same reveal: Claude Code's id→panel
 registry brings the named session's tab to the front, and the tab that became active is closed
-— the only way to close a dead session's tab when a live one carries the same label.
+— by a UNIQUE label only, never by revealing the session (a reveal revives a dead one).
+`newSession` with `AfterSessionId` / `NoFocus` (0.6.14) reveals a live anchor session's tab first so
+VSCode places the new tab beside it, then hands the window's previously active tab back.
 `hooks/sessiondeck-hook.ps1` translates each hook event into one CLI call, swallows every
 failure, and must stay PowerShell 5.1 compatible and UTF-8 **with BOM**.
 

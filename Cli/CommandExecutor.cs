@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
-        "prompt", "page", "dispatcher", "group",
+        "prompt", "page", "dispatcher", "group", "after",
     };
 
     private readonly MainWindow _window;
@@ -238,7 +238,15 @@ public sealed class CommandExecutor
                     if (groupNew == null)
                         return Err($"unknown group '{groupId}' — see: sessiondeck groups");
                 }
-                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew, promptNew, groupNew);
+                // --after <sid>: open the tab NEXT TO that session's tab (VSCode places a new
+                // editor to the right of the active one, so the extension reveals that tab first).
+                // --no-focus: do not bring the VSCode window to the front, and hand the window's
+                // previously active tab back once the new one exists. Both come from the
+                // switch-session relay (05-09-2026, Shay: the new session "opens wherever it
+                // wants" and "takes my focus").
+                a.Options.TryGetValue("after", out var afterNew);
+                bool focusNew = !a.Flags.Contains("no-focus");
+                var (okNew, msgNew) = _window.NewSessionInVscode(wsNew, promptNew, groupNew, focusNew, afterNew);
                 return okNew
                     ? Ok($"opening a new session in workspace {wsNew.Id}" +
                          (groupNew == null ? "" : $" ({groupNew.Name})"))

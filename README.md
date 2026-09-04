@@ -164,7 +164,7 @@ sessiondeck session start  --id <session_id> --workspace <name> [--title "..."]
 sessiondeck session status --id <session_id> --state working|waiting|done|he|replaced|error|idle
 sessiondeck session open   --id <session_id>
 sessiondeck session end    --id <session_id>
-sessiondeck session new    <target> [--prompt "..."] [--group <id>]
+sessiondeck session new    <target> [--prompt "..."] [--group <id>] [--after <sid>] [--no-focus]
 sessiondeck session list   [--workspace <name>] [--all]
 ```
 
