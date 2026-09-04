@@ -134,6 +134,14 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// (ApplyHookInfo) and whenever the condition clears. Runtime only.</summary>
     public DateTime? OrphanSince { get; set; }
 
+    /// <summary>How many times the deck has asked the extension to close this `replaced`
+    /// session's dead tab, and when it last did. Bounded so a window whose extension cannot
+    /// (an old version, a label that does not match) is asked a few times and then left alone
+    /// — every ask reveals the tab, and an endless flicker is worse than a tab left open.
+    /// Runtime only.</summary>
+    public int CloseTabAttempts { get; set; }
+    public DateTime? CloseTabRequestedAt { get; set; }
+
     /// <summary>Discovered from the transcripts folder (expanded view) — not persisted.</summary>
     public bool Historical { get; init; }
 

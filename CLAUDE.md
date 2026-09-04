@@ -176,9 +176,27 @@ transcript scanner never infers `waiting` for it (`EvaluatePendingWait` returns 
 orphan sweep closes it after `ReplacedTtl` (15s of swept time) with no silence guard and logs
 `replaced close`, and in `ReapplyTabCorrelation` it picks a tab LAST so the live successor with
 the same label is never left to the sweep. The hold against `done`/`idle` is the same
-`keepMark` as `he`, logged `kept replaced`. The dead tab itself is not closed by the deck: two
-tabs with one label cannot be told apart from the extension side, and closing the live one
-is the worse failure.
+`keepMark` as `he`, logged `kept replaced`.
+
+**The dead tab is closed through the connector, not matched by label** (v0.9.62, extension
+0.6.12). Two tabs with one label cannot be told apart from the extension side, so
+`RequestCloseReplacedTab` sends `closeSession` and the extension asks Claude Code to REVEAL the
+session id — Claude Code's own id→panel registry is the one thing that knows which tab is
+which — then closes the tab that became active, and only if it carries one of the session's
+labels and the active tab actually changed. Sent on the mark, then on each sweep while the tab
+is still there, three tries at most (`CloseTabMaxAttempts`), and clicking a `replaced` card sends
+it too instead of revealing the corpse. **Mixed fleet after an upgrade:** the sync carries the
+extension `Version`, a window keeps the version it loaded with until it reloads, and
+`VscodeConnection.SupportsCloseSession` gates every ask — a window on an older extension is
+not asked (`closeSession NOT sent` once in the log) and falls back to the reveal, i.e. the
+pre-0.9.62 behaviour. Verify a closed-tab report in the extension's Output channel
+("SessionDeck"), which is where its refusals are written, not in the deck log.
+
+**A prompt delivered by another session** (the relay's message mode, v2.6.0) arrives in the
+transcript with `isMeta=true`, wrapped in `<cross-session-message …>`, with the harness's
+guidance appended after the closing tag. `TranscriptReader.UnwrapCrossSession` and
+`MainWindow.Sanitize` strip it, and the reader accepts that one `isMeta` entry as the first
+prompt — without it the card read "session ca21e0de".
 
 When tuning any detection: **precision over coverage**. A false alarm teaches the user to
 ignore the deck, which costs more than a missed one. Measure the false-alarm rate before

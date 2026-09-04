@@ -17,6 +17,10 @@ public sealed class VscodeSyncMessage
     public int Pid { get; set; }
     public bool Focused { get; set; }                // VSCode window has OS focus
     public List<VscodeTab> Tabs { get; set; } = new();
+    /// <summary>The connector's own version (extension 0.6.12+). Absent from older
+    /// extensions, which is exactly what the deck needs to know: a command they do not
+    /// understand is silently dropped on their side, so the deck must not rely on it.</summary>
+    public string? Version { get; set; }
 }
 
 public sealed class VscodeTab
@@ -38,6 +42,26 @@ public sealed class VscodeConnection
 
     public string WorkspacePath { get; set; } = "";
     public int Pid { get; set; }
+
+    /// <summary>The extension version this window reported, "" for anything before 0.6.12,
+    /// which sent none. A window keeps the version it was loaded with until it reloads, so
+    /// after an upgrade the deck talks to a mix — and must check per connection what it may
+    /// ask for.</summary>
+    public string Version { get; set; } = "";
+
+    /// <summary>closeSession (v0.6.12): reveal the session's tab through Claude Code's own
+    /// id→panel registry and close it. An older extension logs "unknown command" and does
+    /// nothing, so the deck falls back to revealing the tab for the user to close by hand.</summary>
+    public bool SupportsCloseSession => VersionAtLeast(0, 6, 12);
+
+    private bool VersionAtLeast(int major, int minor, int patch)
+    {
+        var parts = Version.Split('.');
+        if (parts.Length < 3) return false;
+        if (!int.TryParse(parts[0], out int a) || !int.TryParse(parts[1], out int b) ||
+            !int.TryParse(parts[2], out int c)) return false;
+        return a != major ? a > major : b != minor ? b > minor : c >= patch;
+    }
 
     /// <summary>This window's own Claude tabs, from its last sync. Held per connection
     /// rather than merged straight onto the workspace: two VSCode windows can have the
