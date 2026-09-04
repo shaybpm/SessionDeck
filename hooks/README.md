@@ -422,20 +422,31 @@ if ((Test-Path $flag) -and ((Get-Content $flag -Raw).Trim() -eq '0')) { exit 0 }
   so the successor carrying the same label keeps the surviving tab and the replaced session gets
   one only while there is a surplus, i.e. exactly while its dead tab is still open. A
   `SessionStart` on the same id (someone resumed the dead transcript) clears it.
-  **The dead tab is closed for you (v0.9.62 + connector 0.6.12).** The moment a session is
-  marked `replaced` with its tab still open — and again on each 10s sweep, three tries at most,
-  20s apart — the deck sends the window a `closeSession` command. The extension asks Claude Code
-  to reveal that session id (its own id→panel registry is the only thing that can tell the dead
-  tab from a live one with the same label), waits for the active tab to CHANGE, checks the tab
-  that came up carries one of the session's labels, and closes it. It refuses in two cases and
-  says so in its Output channel: the active tab did not change (the dead tab may already have
-  been active, or the reveal did nothing — and a tab that already carried the label could be the
-  live successor, so no coin toss), or the revealed tab has a label the session never had.
-  Clicking a `replaced` card does the same close instead of revealing the corpse (a reveal can
-  make Claude Code resume the dead session). **A window keeps the extension version it loaded
-  with until it reloads**: the sync carries `Version`, and a window that reports none or an
-  older one is not asked at all (`closeSession NOT sent` in the log, once) — reload that window,
-  or close the tab by hand as before.
+  **The dead tab is closed for you (v0.9.62 + connector 0.6.12, reshaped in 0.9.63 + 0.6.13).**
+  The moment a session is marked `replaced` with its tab still open — and again on each 10s
+  sweep, three tries at most, 20s apart — the deck sends the window a `closeSession` command
+  with the session's labels. The extension closes the ONE Claude tab that carries one of them;
+  with none it does nothing, with several it refuses and says so in its Output channel. **It
+  never reveals the session to find the tab, and neither does the deck** — that was the 0.6.12
+  design, withdrawn the same night: revealing a dead session makes Claude Code start a fresh
+  CLI on the old transcript ("Continue from where you left off."), and the revived session
+  carries on from wherever its context says it was. dd17e1bb, killed at 00:05:15 on 05-09-2026,
+  came back that way at 00:13:39 from a click on its tab in VSCode and worked twenty minutes
+  beside its own successor on the same package. So a click on a `replaced` card closes the tab
+  when the window's extension can, and otherwise only raises the window and says why it stops
+  there; it never sends `openSession` for a dead session. The unique-label case is the normal
+  one since the relay delivers the successor's prompt as a message (its tab is labelled "Claude
+  Code", then the envelope, then its own ai-title — never the dead tab's label). **A window
+  keeps the extension version it loaded with until it reloads**: the sync carries `Version`,
+  and a window that reports none or an older one is not asked at all (`closeSession NOT sent`
+  in the log, once) — reload that window, or close the tab by hand as before.
+  **The revival itself is refused from outside the deck** (relay v2.7.0 + the hook
+  `~/.claude/hooks/replaced-session-guard.ps1`): the relay writes
+  `state\replaced-sessions\<session_id>.json` right after its kill, the hook blocks every
+  prompt to a session carrying that marker with a Hebrew line to Shay naming the successor,
+  tells a revived session to stand down on `SessionStart`, and re-marks the card `replaced`
+  after the revival's own hooks painted it idle. The word `החייאה` removes the marker for a
+  deliberate revival.
 - A prompt that arrives as a **cross-session message** (the switch-session relay v2.6.0 hands a
   successor its instruction with the `SendMessage` tool, because text typed into the input box
   is never submitted) is written to the transcript wrapped in `<cross-session-message …>` with

@@ -2080,17 +2080,34 @@ public partial class MainWindow : Window
         // instead of letting Claude Code resume it, which a reveal sometimes does: 8cb622da
         // came back to life at 23:47:01 on 04-09-2026 from exactly such a click). An older
         // extension falls through to the reveal, which is still the way to FIND the tab.
-        if (session.Status == SessionStatus.Replaced && session.OpenAsTab &&
-            target is { SupportsCloseSession: true })
+        if (session.Status == SessionStatus.Replaced)
         {
-            session.CloseTabAttempts = 0;    // a click is a fresh request, not a retry
-            session.CloseTabRequestedAt = null;
-            var (closing, why) = RequestCloseReplacedTab(ws, session, target);
-            LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" " +
-                                    (closing ? "closeSession sent" : $"closeSession FAILED: {why}"));
-            SetStatus(closing
-                ? $"Closing the dead tab of \"{session.DisplayTitle}\" — the card goes once it is gone"
-                : $"\"{session.DisplayTitle}\" — {why}");
+            if (session.OpenAsTab && target is { SupportsCloseSession: true })
+            {
+                session.CloseTabAttempts = 0;    // a click is a fresh request, not a retry
+                session.CloseTabRequestedAt = null;
+                var (closing, why) = RequestCloseReplacedTab(ws, session, target);
+                LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" " +
+                                        (closing ? "closeSession sent" : $"closeSession FAILED: {why}"));
+                SetStatus(closing
+                    ? $"Closing the dead tab of \"{session.DisplayTitle}\" — the card goes once it is gone"
+                    : $"\"{session.DisplayTitle}\" — {why}");
+                return;
+            }
+            // NEVER reveal a dead session's tab, whatever the extension can do. Revealing it is
+            // how Claude Code brings the session back: it starts a fresh CLI on the old
+            // transcript, and the revived session carries on from wherever its context says it
+            // was — dd17e1bb came back at 00:13:39 on 05-09-2026 and worked twenty minutes on
+            // the package its successor already held (that revival was a click on the tab in
+            // VSCode itself, which the deck cannot prevent; this one it can). Raise the window
+            // so he can find the tab, and say why the deck stops there.
+            RebindToConnectorWindow(ws, target);
+            FocusWorkspace(ws);
+            string ext = target == null ? "no connector" : target.Version.Length > 0 ? $"extension {target.Version}" : "an extension before 0.6.12";
+            LogService.Info("open", $"click session={session.SessionId} ws=\"{ws.DisplayTitle}\" replaced — NOT revealed ({ext})");
+            SetStatus(session.OpenAsTab
+                ? $"\"{session.DisplayTitle}\" is a dead session — close its tab by hand; this window runs {ext}, which cannot close tabs (reload the window to update it). Not revealed: revealing would revive it."
+                : $"\"{session.DisplayTitle}\" is a dead session with no tab left — its card goes on the next sweep");
             return;
         }
         RebindToConnectorWindow(ws, target);

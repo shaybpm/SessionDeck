@@ -7,9 +7,12 @@
 // Inbound: SessionDeck pushes commands down the same connection. "openSession"
 // delegates to Claude Code's own claude-vscode.editor.open, which reveals the tab
 // if the session is open and resumes it if not — the extension holds the
-// session_id↔tab map, so no correlation is needed on our side. "closeSession" (v0.6.12)
-// rides on the same reveal: the tab that becomes active is the session's, and it is closed
-// — the only way to close a DEAD session's tab when a live one carries the same label.
+// session_id↔tab map, so no correlation is needed on our side. "closeSession" (v0.6.12,
+// reshaped in v0.6.13) closes a DEAD session's tab by label, and only when exactly one Claude
+// tab carries one of the session's labels. It deliberately does NOT reveal the session to find
+// its tab: revealing a dead session makes Claude Code start a fresh CLI on the old transcript,
+// and the revived session carries on from wherever its context says it was (dd17e1bb,
+// 05-09-2026, twenty minutes beside its own successor). An ambiguous label is left alone.
 
 import * as vscode from 'vscode';
 import * as net from 'net';
@@ -19,7 +22,6 @@ const RECONNECT_MS = 5000;
 const SYNC_DEBOUNCE_MS = 300;
 const HEARTBEAT_MS = 2000;         // must stay well under SessionDeck's ActiveTabTtl
 const CLAUDE_VIEWTYPE = 'claudeVSCodePanel';   // actual viewType is prefixed (mainThreadWebview-...)
-const REVEAL_SETTLE_MS = 1500;     // how long closeSession waits for the revealed tab to become active
 
 let out: vscode.OutputChannel;
 let extensionVersion = '?';
@@ -168,69 +170,45 @@ function isClaudeTab(tab: vscode.Tab | undefined): boolean {
     return !!tab && tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes(CLAUDE_VIEWTYPE);
 }
 
-/// Where a tab sits plus what it says — the identity test for "did the active tab change".
-/// Object identity is not used: the tab model can be rebuilt wholesale by the host, and a
-/// rebuilt object for the SAME tab would then read as a change and close the wrong one.
-function tabKey(tab: vscode.Tab | undefined): string {
-    if (!tab) {
-        return '';
-    }
-    const groups = vscode.window.tabGroups.all;
-    const gi = groups.indexOf(tab.group);
-    const ti = tab.group.tabs.indexOf(tab);
-    return `${gi}|${ti}|${tab.label}`;
-}
-
 /// Close the tab of a session that no longer exists (SessionDeck marks it `replaced`: the
 /// switch-session relay killed its process after opening its successor). Nothing in the tab
-/// API says which session a tab holds, and the dead tab usually carries the SAME label as the
-/// live successor — the successor is titled by the very prompt the dead one handed over — so
-/// matching by label alone would close the wrong one half the time. Claude Code's own
-/// session→panel registry can tell them apart: asking it to reveal the session id brings the
-/// dead tab to the front, and THAT tab is the one to close.
+/// API says which session a tab holds, so the tab is found by LABEL, and closed only when
+/// exactly one Claude tab carries one of the session's labels.
 ///
-/// Two refusals, both deliberate. The tab model mirrors the renderer asynchronously, so the
-/// active tab is polled until it CHANGES from what it was before the reveal; if it never
-/// changes and what was already active carries this label, that tab may be the dead one or
-/// may be the live successor, and a coin toss is not a close — the user closes it by hand.
-/// And a tab that became active but does not carry one of the session's labels is not
-/// touched either: the reveal did something other than what was asked.
+/// v0.6.12 revealed the session first (Claude Code's own id→panel registry brings the right
+/// tab to the front) to disambiguate a label two tabs share. That was withdrawn the same
+/// night: revealing a dead session makes Claude Code start a fresh CLI on the old transcript
+/// ("Continue from where you left off."), and the revived session carries on from wherever
+/// its context says it was — dd17e1bb worked twenty minutes on a package its successor
+/// already held. A tab close a second later would kill that process again, but a second is
+/// enough for a tool call. So: no reveal, ever. Since the relay delivers the successor's prompt
+/// as a message (v2.6.0), the successor's tab is labelled "Claude Code", then the message
+/// envelope, then its own ai-title — never the dead tab's label — so the unique-label case is
+/// the normal one. An ambiguous label is logged and left for the user.
 async function closeClaudeTab(sessionId: string, labels: string[]): Promise<void> {
     out.appendLine(`closeSession ${sessionId} (labels: ${labels.join(' | ')})`);
     if (labels.length === 0) {
         out.appendLine('closeSession: no labels to recognise the tab by — not closing');
         return;
     }
-    const before = tabKey(vscode.window.tabGroups.activeTabGroup.activeTab);
-    try {
-        await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId, undefined, vscode.ViewColumn.Active);
-    } catch (e) {
-        out.appendLine(`closeSession: reveal failed (${e}) — not closing`);
-        return;
-    }
-    const deadline = Date.now() + REVEAL_SETTLE_MS;
-    let target: vscode.Tab | undefined;
-    while (Date.now() < deadline) {
-        const active = vscode.window.tabGroups.activeTabGroup.activeTab;
-        if (active && tabKey(active) !== before && isClaudeTab(active)) {
-            target = active;
-            break;
+    const matches: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+            if (isClaudeTab(tab) && labelMatches(tab.label, labels)) {
+                matches.push(tab);
+            }
         }
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
     }
-    if (!target) {
-        const stayed = vscode.window.tabGroups.activeTabGroup.activeTab;
-        out.appendLine(stayed && isClaudeTab(stayed) && labelMatches(stayed.label, labels)
-            ? `closeSession: the active tab already carried "${stayed.label}" before the reveal — cannot tell the dead tab from a live one, not closing`
-            : 'closeSession: the reveal changed nothing — not closing');
+    if (matches.length === 0) {
+        out.appendLine('closeSession: no Claude tab carries one of this session\'s labels — nothing to close');
         return;
     }
-    if (!labelMatches(target.label, labels)) {
-        out.appendLine(`closeSession: the revealed tab is "${target.label}", not one of this session's labels — not closing`);
+    if (matches.length > 1) {
+        out.appendLine(`closeSession: ${matches.length} tabs carry "${matches[0].label}" — cannot tell the dead one from a live one without revealing it, and a reveal revives the session; not closing`);
         return;
     }
-    const ok = await vscode.window.tabGroups.close(target);
-    out.appendLine(`closeSession: ${ok ? 'closed' : 'close refused'} "${target.label}"`);
+    const ok = await vscode.window.tabGroups.close(matches[0]);
+    out.appendLine(`closeSession: ${ok ? 'closed' : 'close refused'} "${matches[0].label}"`);
 }
 
 async function openClaudePanel(sessionId: string | undefined, maximize: boolean, prompt: string | undefined): Promise<void> {
