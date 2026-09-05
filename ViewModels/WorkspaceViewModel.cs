@@ -308,8 +308,30 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
             s.Visible = SearchPredicate == null ? normal
                 : !s.Phantom && (SearchPredicate(s) || (SelfMatchesSearch && normal));
         }
+        RefreshGroupHeaders();
         Raise(nameof(HasOpenSessions));
         Raise(nameof(IsActive));
+    }
+
+    /// <summary>Draw a heading on the first VISIBLE row of each window's block, so a card whose
+    /// sessions live in several VSCode instances reads as one section per window instead of one
+    /// long list (Shay, 05-09-2026: the rows "כל הזמן משנים מקום בטבלה" and finding the one he
+    /// wants means reading every row).
+    ///
+    /// Visibility is the load-bearing part: the first row of a block is often a hidden session
+    /// (headless, phantom, a closed one while collapsed), and hanging the heading on it would
+    /// leave the block that IS shown with no heading at all. Must therefore run after the sort
+    /// AND after every visibility change, which is why it lives here and not in the sorter.</summary>
+    public void RefreshGroupHeaders()
+    {
+        bool anyGrouped = Sessions.Any(s => s.HasGroup);
+        string? lastGroup = null;
+        foreach (var s in Sessions)
+        {
+            if (!anyGrouped || !s.Visible) { s.ShowGroupHeader = false; continue; }
+            s.ShowGroupHeader = s.GroupId != lastGroup;
+            lastGroup = s.GroupId;
+        }
     }
 
     public SessionViewModel? FindSession(string sessionId)

@@ -224,6 +224,8 @@ public partial class MainWindow : Window
                     GroupId = sc.GroupId,
                     GroupName = _sessionGroups.FirstOrDefault(g => g.Id == sc.GroupId)?.Name ?? "",
                     GroupColor = _sessionGroups.FirstOrDefault(g => g.Id == sc.GroupId)?.Color ?? "",
+                    GroupOrder = _sessionGroups.FindIndex(g => g.Id == sc.GroupId) is >= 0 and var gi
+                                 ? gi : int.MaxValue,
                     // Restored waiting must be re-provable from the transcript, or the
                     // first scan clears it (T-0313: a fork-phantom orange otherwise
                     // survives restarts — the persisted status said waiting and the
@@ -1625,6 +1627,7 @@ public partial class MainWindow : Window
         var g = _sessionGroups.FirstOrDefault(x => x.Id == gid);
         s.GroupName = g?.Name ?? gid;
         s.GroupColor = g?.Color ?? "";
+        s.GroupOrder = g != null ? _sessionGroups.IndexOf(g) : int.MaxValue;
         if (s.GroupId == gid) return;
         LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
                                   (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") + " from=hook");
@@ -2010,8 +2013,15 @@ public partial class MainWindow : Window
     /// first within each group. Stable in-place sort via Move.</summary>
     private static void SortSessions(WorkspaceViewModel ws)
     {
+        // Grouped by WINDOW first, then by recency inside the window (Shay, 05-09-2026: "הם כל
+        // הזמן משנים מקום בטבלה" — with three instances on one card, ordering by recency alone
+        // reshuffles the whole list on every event and finding the session you want means
+        // reading every row). The window blocks stay put; only the rows inside one move.
+        // A card whose sessions carry no group is unaffected: they all sort equal and fall
+        // through to the recency order, which is what every other card has always had.
         var desired = ws.Sessions
             .OrderBy(s => s.Closed ? 1 : 0)
+            .ThenBy(s => s.GroupOrder)
             .ThenByDescending(s => s.LastEventAt ?? s.EndedAt ?? s.StartedAt)
             .ToList();
         for (int target = 0; target < desired.Count; target++)
@@ -2020,6 +2030,7 @@ public partial class MainWindow : Window
             if (current != target)
                 ws.Sessions.Move(current, target);
         }
+        ws.RefreshGroupHeaders();
     }
 
     /// <summary>Usage, for the deck's "last used" and "most used" orders — bumped only by a

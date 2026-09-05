@@ -187,6 +187,23 @@
             <ItemsControl ItemsSource="{Binding Sessions}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
+                      <StackPanel>
+                        <!-- One heading per VSCode window, on the first visible row of its block.
+                             A card whose sessions all live in one window (every card but .claude)
+                             never shows one. -->
+                        <TextBlock Text="{Binding GroupLabel}" Foreground="{Binding GroupBrush}"
+                                   FontWeight="Bold" Margin="2,7,2,1" Opacity="0.85"
+                                   FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShowGroupHeader}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <Border BorderBrush="{Binding BorderBrush}" BorderThickness="2" CornerRadius="5"
                                 Margin="0,3" Padding="8,4" Cursor="Hand"
                                 MouseLeftButtonUp="Session_MouseUp">
@@ -283,28 +300,16 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <!-- WHICH VSCode instance this session runs in. Three of them
-                                         share the .claude folder and nothing else on the card, in
-                                         the log or in any hook payload says which one a session is
-                                         in — so when one window went down there was no way to tell
-                                         what had been lost (05-09-2026). Hidden when unknown, and
-                                         on every card whose folder has no groups. -->
-                                    <TextBlock Text="{Binding GroupLabel}" Foreground="{Binding GroupBrush}" FontWeight="SemiBold" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
-                                               ToolTip="{Binding GroupName}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HasGroup}" Value="False">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                    <!-- The window this session runs in is named ONCE, by the
+                                         heading above its block, not on every row: with the rows
+                                         grouped it would be the same word repeated down the card
+                                         (Shay: "וכל השאר רגיל"). The tooltip still carries it for
+                                         a single row. -->
                                     <TextBlock Text="{Binding StatusDisplay}" Foreground="#FFBBBBBB" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
+                      </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
