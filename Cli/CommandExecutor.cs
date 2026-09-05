@@ -556,7 +556,8 @@ public sealed class CommandExecutor
         Agents: int.TryParse(a.Options.GetValueOrDefault("agents"), out int agents) ? agents : null,
         Entrypoint: a.Options.GetValueOrDefault("entrypoint"),
         PrintMode: a.Flags.Contains("print-mode"),
-        Dispatcher: a.Options.GetValueOrDefault("dispatcher"));
+        Dispatcher: a.Options.GetValueOrDefault("dispatcher"),
+        Group: a.Options.GetValueOrDefault("group"));
 
     private (WorkspaceViewModel?, string?) ResolveTarget(ParsedArgs a)
     {

@@ -337,6 +337,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         }
     }
 
+    /// <summary>The stamp came from the hook (the session's own wallet variable) rather than
+    /// from matching a tab label. Runtime only, and it is a LOCK: tab correlation may not
+    /// overwrite it, because two sessions can carry the same tab label and only one of them is
+    /// in that window.</summary>
+    public bool GroupFromHook { get; set; }
+
     public bool HasGroup => _groupId.Length > 0;
 
     /// <summary>What the chip says: the window's COLOUR NAME, capitalised — "Purple", "Green",

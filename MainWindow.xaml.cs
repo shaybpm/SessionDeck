@@ -1602,9 +1602,33 @@ public partial class MainWindow : Window
     public sealed record HookInfo(string? Detail = null, string? Transcript = null, string? Source = null,
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
                                   int? Agents = null, string? Entrypoint = null,
-                                  bool PrintMode = false, string? Dispatcher = null)
+                                  bool PrintMode = false, string? Dispatcher = null,
+                                  string? Group = null)
     {
         public static readonly HookInfo Empty = new();
+    }
+
+    /// <summary>Stamp a session's window from the hook, which is CERTAIN, and beats the tab-label
+    /// correlation, which is a guess.
+    ///
+    /// The hook reads `CLAUDE_SECURESTORAGE_CONFIG_DIR` out of the session's own environment —
+    /// the variable that binds it to a Claude account, and so to exactly one instance — so it
+    /// cannot be wrong. Label matching can: two live sessions were genuinely called
+    /// "execute item #3.0", one green and one purple, and the correlation handed the green one
+    /// the purple tab (measured 05-09-2026, hours after the stamp was first built on labels
+    /// alone). So a hook stamp is never overwritten by one inferred from a tab.</summary>
+    private void StampGroupFromHook(SessionViewModel s, HookInfo info)
+    {
+        if (info.Group is not { Length: > 0 } gid) return;
+        s.GroupFromHook = true;
+        var g = _sessionGroups.FirstOrDefault(x => x.Id == gid);
+        s.GroupName = g?.Name ?? gid;
+        s.GroupColor = g?.Color ?? "";
+        if (s.GroupId == gid) return;
+        LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
+                                  (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") + " from=hook");
+        s.GroupId = gid;
+        QueueSave();
     }
 
     public (string, bool) StartSession(string sessionId, string workspaceArg, string? title, HookInfo info)
@@ -1614,6 +1638,10 @@ public partial class MainWindow : Window
             var (fw, fs) = found;
             fw = EnsureSessionHome(fw, fs, info.Transcript);
             fs.Closed = false;
+            // Which window it is in, from the session's own environment. On a `resume` too:
+            // a resumed session can legitimately come up in a different instance, and this is
+            // the only event that can see that.
+            StampGroupFromHook(fs, info);
             // A SessionStart on a session the deck already knows is NOT always a fresh start,
             // and treating it as one erased live state: clicking a card makes the deck send an
             // open command, VSCode answers it with SessionStart source=resume, and the card
@@ -1675,6 +1703,7 @@ public partial class MainWindow : Window
 
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
+        StampGroupFromHook(session, info);
         ws.Sessions.Insert(0, session);
         ws.RefreshSessionVisibility();
         AfterSessionChange(ws, session);
@@ -1838,6 +1867,7 @@ public partial class MainWindow : Window
                 StartedAt = DateTime.Now,
             };
             ApplyHookInfo(recreated, info);
+            StampGroupFromHook(recreated, info);
             if (host == null)
             {
                 if (workspaceArg.Length == 0)
@@ -1900,6 +1930,9 @@ public partial class MainWindow : Window
         if (status == SessionStatus.Waiting && info.PermissionDialog)
             session.PermissionDialogScanMark = session.TranscriptScannedAt;
         ApplyHookInfo(session, info);
+        // A prompt carries the wallet too, so a session the deck stamped from a tab label — the
+        // guess — is corrected by the certain answer on its owner's very next turn.
+        StampGroupFromHook(session, info);
         LearnTranscriptDir(ws, info);
         RefreshPhantom(session);
         // Marked `replaced` just now: the mark changes its place in the tab correlation (it
@@ -2790,13 +2823,16 @@ public partial class MainWindow : Window
             string colour = g?.Color ?? "";
             foreach (var s in ws.Sessions)
             {
+                // The hook read this session's own wallet variable and cannot be wrong; a tab
+                // label can be, and was. Never let a guess overwrite the certain answer.
+                if (s.GroupFromHook) continue;
                 if (!conn.Tabs.Any(t => TabLabelMatches(t.Label, s))) continue;
                 s.GroupName = name;
                 s.GroupColor = colour;
                 if (s.GroupId == gid) continue;
                 LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
                                           (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") +
-                                          $" pid={conn.Pid} window-pid={conn.OwnerPid}");
+                                          $" pid={conn.Pid} window-pid={conn.OwnerPid} from=tab");
                 s.GroupId = gid;
                 QueueSave();
             }
