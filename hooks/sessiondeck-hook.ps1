@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.51  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.67  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -78,11 +78,34 @@ function Test-PrintModeRun {
     return [bool]($proc.CommandLine -match '(^|\s)--?p(rint)?(\s|$)')
 }
 
+# WHICH VSCode instance this session is running in, and it is the only certain answer there is.
+# Several instances can have the same folder open, so a window cannot be told from a tab label:
+# two live sessions were genuinely titled "execute item #3.0", one in the green window and one
+# in the purple, and the deck's label correlation put the green one in purple (05-09-2026).
+#
+# CLAUDE_SECURESTORAGE_CONFIG_DIR is what binds a window to a Claude account, so it is set by
+# exactly one instance's launcher and inherited by every session started in it. Its ABSENCE is a
+# value, not a missing reading: it means the default instance, which has no group. Only the
+# directory NAME is read - never a file inside it, which is where the credentials live.
+# The same mapping, for a different purpose, is in ~\.claude\hooks\session-account-tag.ps1.
+function Get-SessionGroup {
+    $dir = $env:CLAUDE_SECURESTORAGE_CONFIG_DIR
+    if (-not $dir) { return $null }
+    switch -Regex ((Split-Path $dir -Leaf)) {
+        '^\.claude-mgmt$'  { return 'purple' }
+        '^\.claude-mgmt2$' { return 'green'  }
+        '^\.claude-mgmt3$' { return 'orange' }
+        default            { return $null }
+    }
+}
+
 $cliArgs = $null
 switch ($HookEvent) {
     'SessionStart' {
         $cliArgs = @('session', 'start', '--id', $sid, '--workspace', $payload.cwd)
         if ($payload.source)          { $cliArgs += @('--source', $payload.source) }
+        $group = Get-SessionGroup
+        if ($group)                   { $cliArgs += @('--group', $group) }
     }
     'UserPromptSubmit' {
         $cliArgs = @('session', 'status', '--id', $sid, '--state', 'working')
@@ -186,6 +209,14 @@ if ($HookEvent -in @('SessionStart', 'UserPromptSubmit', 'Stop') -and (Test-Prin
 # cwd goes on EVERY event so SessionDeck can recreate a session it no longer knows
 # (e.g. after its workspace was removed from the deck) — self-healing safety net.
 if ($payload.cwd -and $HookEvent -ne 'SessionStart') { $cliArgs += @('--workspace', $payload.cwd) }
+# On the other two events that can CREATE a session record, for the same self-healing reason as
+# cwd above: a session whose SessionStart the deck missed (it was down, restarting, or being
+# upgraded) is recreated from whichever event lands next, and it must not be recreated without
+# knowing which window it is in.
+if ($HookEvent -in @('UserPromptSubmit', 'Stop')) {
+    $group = Get-SessionGroup
+    if ($group)                   { $cliArgs += @('--group', $group) }
+}
 if ($payload.transcript_path)  { $cliArgs += @('--transcript', $payload.transcript_path) }
 if ($payload.permission_mode)  { $cliArgs += @('--mode', $payload.permission_mode) }
 # Who started this session: claude-vscode for the IDE, sdk-cli for a headless
