@@ -289,8 +289,8 @@
                                          in — so when one window went down there was no way to tell
                                          what had been lost (05-09-2026). Hidden when unknown, and
                                          on every card whose folder has no groups. -->
-                                    <TextBlock Text="{Binding GroupLabel}" Foreground="#FF8FA6C4" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
-                                               ToolTip="The VSCode window this session runs in">
+                                    <TextBlock Text="{Binding GroupLabel}" Foreground="{Binding GroupBrush}" FontWeight="SemiBold" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
+                                               ToolTip="{Binding GroupName}">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
                                                 <Style.Triggers>

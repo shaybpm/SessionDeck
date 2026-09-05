@@ -171,6 +171,10 @@ public partial class MainWindow : Window
         // Code.exe command line brought the window up on the WRONG Claude account.
         if (config.SchemaVersion < 6 && AppConfig.FillMissingLaunchers(_sessionGroups) is > 0 and var filled)
             LogService.Info("config", $"schema<6: filled the launcher on {filled} session group(s)");
+        // Schema 7: the session card gained a chip naming the window it runs in, drawn in that
+        // window's own colour. Groups seeded earlier carry no colour and would draw grey.
+        if (config.SchemaVersion < 7 && AppConfig.FillMissingGroupColors(_sessionGroups) is > 0 and var coloured)
+            LogService.Info("config", $"schema<7: filled the colour on {coloured} session group(s)");
         LoadCustomToggles();
 
         int usageRebuilt = 0;
@@ -219,6 +223,7 @@ public partial class MainWindow : Window
                     // deck restarted after the instance died is exactly when it is asked.
                     GroupId = sc.GroupId,
                     GroupName = _sessionGroups.FirstOrDefault(g => g.Id == sc.GroupId)?.Name ?? "",
+                    GroupColor = _sessionGroups.FirstOrDefault(g => g.Id == sc.GroupId)?.Color ?? "",
                     // Restored waiting must be re-provable from the transcript, or the
                     // first scan clears it (T-0313: a fork-phantom orange otherwise
                     // survives restarts — the persisted status said waiting and the
@@ -2780,11 +2785,14 @@ public partial class MainWindow : Window
         {
             string gid = GroupIdOf(conn, windows, groups);
             if (gid.Length == 0) continue;                 // window not identified — say nothing
-            string name = groups.FirstOrDefault(g => g.Id == gid)?.Name ?? gid;
+            var g = groups.FirstOrDefault(x => x.Id == gid);
+            string name = g?.Name ?? gid;
+            string colour = g?.Color ?? "";
             foreach (var s in ws.Sessions)
             {
                 if (!conn.Tabs.Any(t => TabLabelMatches(t.Label, s))) continue;
                 s.GroupName = name;
+                s.GroupColor = colour;
                 if (s.GroupId == gid) continue;
                 LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
                                           (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") +
