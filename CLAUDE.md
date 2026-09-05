@@ -205,6 +205,22 @@ window still running an older connector logs `may come up blank` instead of sile
 **Measured the same evening:** of seven sessions recovered from the dead instance, five came back
 in place and two came back completely empty; both empty ones resumed first try from a terminal.
 
+**A two-step revival gets such a session back into a TAB, with no window reload and no terminal.**
+What decides whether `editor.open` works turned out not to be the registry but the state of the
+TRANSCRIPT: the two that failed both ended mid-turn (last entry `attachment` and `assistant`),
+while the five that worked ended on a settled entry. So finish the turn from outside first:
+
+```
+claude --resume <id> --permission-mode plan -p "Reply with the single word: alive."
+sessiondeck session open --id <id>
+```
+
+`plan` keeps the revived session read-only, so it cannot act while being woken. The transcript
+then ends settled and `editor.open` binds a real tab — `bridge-session` appears as its last
+entry, which is the proof to look for. Both steps run from anywhere, with nothing typed into the
+user's window. The cost is one extra turn in the session's history, and that prompt becomes the
+VSCode tab title unless the card already carries a `CustomTitle`.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
