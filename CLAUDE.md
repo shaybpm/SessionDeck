@@ -159,17 +159,22 @@ this session". `SessionConfig.GroupId` holds the answer: persisted, shown on the
 `list` as `@<group>`, logged as `window session=… runs in "green"`. **A stamp is never cleared** —
 a window that closed does not un-say where its sessions were, and that record is the entire point.
 
-**Two sources write it, and only one of them is certain** (v0.9.67). The hook reads
-`CLAUDE_SECURESTORAGE_CONFIG_DIR` — the variable that binds a window to a Claude account, so it
-is set by exactly one instance's launcher and inherited by every session started there — and
-sends `--group` on `SessionStart`, `UserPromptSubmit` and `Stop`. That is `from=hook`, it is
-right by construction, and `SessionViewModel.GroupFromHook` locks it. `StampSessionGroups` is the
-fallback, matching a session against each connection's own tabs (`from=tab`), and it is a GUESS:
-two live sessions were genuinely titled `execute item #3.0`, one green and one purple, and it
-handed the green one the purple tab. It may never overwrite a hook stamp. **The same wallet is
-logged independently by `~/.claude/hooks/session-account-tag.ps1` into
+**The hook is the ONLY source, and the deck must not try to work it out for itself** (v0.9.70).
+The bridge reads `CLAUDE_SECURESTORAGE_CONFIG_DIR` — the variable that binds a window to a Claude
+account, so it is set by exactly one instance's launcher and inherited by every session started
+there — and sends `--group` on `SessionStart`, `UserPromptSubmit` and `Stop`. **Two inference
+attempts were built and both removed the same day, and the second is the one to remember:**
+matching a session by TAB LABEL fails when labels collide (two live sessions titled
+`execute item #3.0`, one green and one purple), and reading each CONNECTION's own tabs fails
+worse — **two extension hosts on one folder report IDENTICAL tab lists**, so every session
+belongs to every window, the loop's last connection wins, and the stamp flipped green/purple
+twice a second. Shay caught it as a holding session showing purple while it sat in green. Do not
+reintroduce either; a per-connection tab list is not per-window evidence.
+
+**The same wallet is logged independently by `~/.claude/hooks/session-account-tag.ps1` into
 `state/token-analytics/session-accounts.jsonl`, one line per `SessionStart`** — which is how the
-history was reconstructed after the fact, and the place to look when a window dies.
+history was reconstructed after a window died, and the place to look for any session the deck
+never stamped (backfill it into the saved config with the deck stopped).
 
 **The chip says the window's COLOUR, in that colour** (v0.9.66, Shay's request the same day).
 He calls his three instances purple, green and orange, so the chip reads `Purple` / `Green` /
@@ -184,8 +189,21 @@ window was focused last, so once a session's tab was gone its card opened a blan
 sibling instance that had never heard of it. Now a stamped session resolves only to its own
 group; if that instance is down, `OpenSessionInVscode` parks the request under the group and
 launches it through its own launcher, exactly as a new grouped session does. Measured 05-09-2026:
-the green instance went down carrying five sessions, nothing said which they had been, and every
-click landed in purple.
+the green instance went down carrying seven sessions, nothing said which they had been, and every
+click landed in purple. **The group outranks the window that appears to HOLD the tab** (v0.9.68),
+because a tab is matched by label and labels collide: `execute item #3.0` was the title of two
+live sessions, one green and one purple, and the holder check sent the green one to purple.
+
+**Reopening a session whose window died needs the CLI, not `editor.open`** (v0.9.69 / connector
+0.6.15). `claude-vscode.editor.open` is reveal-or-resume against Claude Code's id→panel registry,
+and that registry belongs to the WINDOW — so for a session whose window is gone it opens a blank
+conversation, and it does not throw, which is why the extension's catch-based terminal fallback
+never fired. `OpenSessionInVscode` now detects that no connector of the card holds the session's
+tab and sets `Terminal = true`; the connector runs `claude --resume <id>` in a terminal, which
+reads the transcript off disk and needs no registry. Gated on `SupportsTerminalResume`, so a
+window still running an older connector logs `may come up blank` instead of silently doing it.
+**Measured the same evening:** of seven sessions recovered from the dead instance, five came back
+in place and two came back completely empty; both empty ones resumed first try from a terminal.
 
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
