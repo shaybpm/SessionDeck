@@ -336,8 +336,14 @@ public partial class MainWindow
     /// field existed (Shay, 13-08-2026).</summary>
     private string? BuildNewSessionPrompt(TaskItemViewModel task, bool fast = false)
     {
-        string? template = Vm.TasksPanel.NewSessionPrompt;
-        if (fast)
+        // The card's own phrase wins. A document can hold cards of different KINDS — the
+        // holdings view's cards are packages, which open with "holding session <slug>" — and
+        // one template per document cannot serve both without opening a held item by number,
+        // which the holding-session skill forbids outright.
+        string? template = task.SessionPrompt.Length > 0
+            ? task.SessionPrompt
+            : Vm.TasksPanel.NewSessionPrompt;
+        if (fast && task.SessionPrompt.Length == 0)
             template = Vm.TasksPanel.NewSessionPromptFast
                        ?? (template == null ? null : template + " --fast");
         return template?

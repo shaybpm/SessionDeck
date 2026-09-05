@@ -67,6 +67,9 @@ public partial class TasksFileDialog : Window
           card is done by path. Without it there is no "open session" button.
         - `sessions` — optional. List of Claude Code session UUIDs (many-to-many).
         - `url` — optional. Link that opens the task (via ShellExecute, e.g. obsidian://...).
+        - `sessionPrompt` — optional. This card's own launch phrase, same `<id>`/`<name>`
+          placeholders, used instead of the envelope's `newSessionPrompt`. For a document whose
+          cards are not all the same kind of thing (a list of packages rather than of tasks).
 
         ## Pointing SessionDeck at the file (CLI)
 
