@@ -136,7 +136,12 @@ async function handleCommand(raw: string): Promise<void> {
     const name = cmd.Cmd ?? cmd.cmd;
     if (name === 'openSession') {
         const sessionId = cmd.SessionId ?? cmd.sessionId;
-        if (sessionId) {
+        // Terminal (0.6.15): resume through the CLI instead of Claude Code's reveal-or-resume.
+        // Asked for when the session is known to be DEAD — see resumeInTerminal.
+        const viaTerminal: boolean = !!(cmd.Terminal ?? cmd.terminal);
+        if (sessionId && viaTerminal) {
+            resumeInTerminal(sessionId);
+        } else if (sessionId) {
             await openClaudePanel(sessionId, cmd.Maximize ?? cmd.maximize, undefined);
         }
     } else if (name === 'newSession') {
@@ -159,6 +164,32 @@ async function handleCommand(raw: string): Promise<void> {
         }
     } else {
         out.appendLine(`unknown command: ${name}`);
+    }
+}
+
+/// Resume a session through the CLI, in a terminal, rather than through Claude Code's own
+/// `claude-vscode.editor.open`.
+///
+/// WHY IT HAS TO EXIST. `editor.open` is reveal-or-resume against Claude Code's in-process
+/// id→panel registry, and that registry belongs to the WINDOW. A session whose window died is
+/// not in the new window's registry, so the command opens a blank conversation tab — and it does
+/// not throw, so the existing catch-based terminal fallback never fires. Measured 05-09-2026:
+/// the green instance went down carrying seven sessions; reopening them gave four live tabs and
+/// two completely empty ones, and the two empty ones resumed first try from a terminal, because
+/// `claude --resume` reads the transcript off disk and needs no registry at all.
+///
+/// The deck asks for this only when it knows the session is dead (its window is gone), so a live
+/// session still gets the fast in-place reveal.
+function resumeInTerminal(sessionId: string): void {
+    out.appendLine(`openSession ${sessionId} via terminal (its window died — editor.open would open blank)`);
+    try {
+        const term = vscode.window.createTerminal({ name: `Claude ${sessionId.slice(0, 8)}` });
+        term.show();
+        term.sendText(`claude --resume ${sessionId}`);
+    } catch (e) {
+        out.appendLine(`terminal resume failed: ${e}`);
+        void vscode.window.showErrorMessage(
+            'SessionDeck: could not open a terminal to resume the session. Details: Output → SessionDeck.');
     }
 }
 

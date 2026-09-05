@@ -1608,19 +1608,20 @@ public partial class MainWindow : Window
         public static readonly HookInfo Empty = new();
     }
 
-    /// <summary>Stamp a session's window from the hook, which is CERTAIN, and beats the tab-label
-    /// correlation, which is a guess.
+    /// <summary>Stamp a session's window from the hook — the ONLY source there is.
     ///
-    /// The hook reads `CLAUDE_SECURESTORAGE_CONFIG_DIR` out of the session's own environment —
-    /// the variable that binds it to a Claude account, and so to exactly one instance — so it
-    /// cannot be wrong. Label matching can: two live sessions were genuinely called
-    /// "execute item #3.0", one green and one purple, and the correlation handed the green one
-    /// the purple tab (measured 05-09-2026, hours after the stamp was first built on labels
-    /// alone). So a hook stamp is never overwritten by one inferred from a tab.</summary>
+    /// The hook reads `CLAUDE_SECURESTORAGE_CONFIG_DIR` out of the session's own environment:
+    /// the variable that binds it to a Claude account, and therefore to exactly one instance.
+    /// Nothing else can answer the question, and two things were tried on the same day and both
+    /// failed. Matching a session to a window by TAB LABEL fails when labels collide: two live
+    /// sessions were titled "execute item #3.0", one green and one purple. Reading each
+    /// CONNECTION's own tabs fails too, and worse: two extension hosts on one folder report
+    /// IDENTICAL tab lists, so every session belongs to every window, the last connection in the
+    /// loop wins, and the stamp flipped green/purple twice a second (Shay saw it as a holding
+    /// session showing purple while it sat in the green window).</summary>
     private void StampGroupFromHook(SessionViewModel s, HookInfo info)
     {
         if (info.Group is not { Length: > 0 } gid) return;
-        s.GroupFromHook = true;
         var g = _sessionGroups.FirstOrDefault(x => x.Id == gid);
         s.GroupName = g?.Name ?? gid;
         s.GroupColor = g?.Color ?? "";
@@ -2471,25 +2472,30 @@ public partial class MainWindow : Window
         var conns = ConnectorsFor(ws);
         if (conns.Count <= 1) return conns.FirstOrDefault();
 
+        // The session's own instance, when we know it, decides — and it OUTRANKS the window
+        // that appears to hold its tab, because a tab is matched by LABEL and labels collide.
+        // Measured 05-09-2026: `execute item #3.0` was the title of two live sessions, one green
+        // and one purple, so the purple window "held the tab" of a green session and the reopen
+        // landed there. Inside the right instance a label match is still the best pick, since
+        // that instance may have several windows.
+        // A group whose instance is not connected returns null deliberately: the caller parks
+        // the request for that group and launches it, which is the correct outcome.
+        if (session is { GroupId.Length: > 0 } &&
+            GroupsFor(ws).FirstOrDefault(g => g.Id == session.GroupId) is { } home)
+        {
+            var inHome = ConnectorsInGroup(ws, home);
+            var homePick = inHome.LastOrDefault(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)))
+                           ?? inHome.LastOrDefault();
+            LogService.Debug("route", $"session={session.SessionId} → " +
+                (homePick != null ? $"pid={homePick.Pid}" : "(nothing)") +
+                $" — its window is \"{home.Id}\"" + (homePick == null ? ", not connected" : ""));
+            return homePick;
+        }
         if (session != null &&
             conns.LastOrDefault(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session))) is { } holder)
         {
             LogService.Debug("route", $"session={session.SessionId} → pid={holder.Pid} (holds the tab)");
             return holder;
-        }
-        // The tab is gone but we recorded which instance it was in. Go back THERE, and to
-        // nowhere else: routing a session to whichever window was focused last is what put a
-        // dead green session into the purple window and opened a blank tab (05-09-2026).
-        // Returning null when its own instance is not connected is deliberate — the caller
-        // parks the request for that group and launches it, which is the correct outcome.
-        if (session is { GroupId.Length: > 0 } &&
-            GroupsFor(ws).FirstOrDefault(g => g.Id == session.GroupId) is { } home)
-        {
-            var inHome = ConnectorInGroup(ws, home);
-            LogService.Debug("route", $"session={session.SessionId} → " +
-                (inHome != null ? $"pid={inHome.Pid}" : "(nothing)") +
-                $" — its window is \"{home.Id}\"" + (inHome == null ? ", not connected" : ""));
-            return inHome;
         }
         var focused = conns.Where(c => c.LastFocusedAt != default)
                            .OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
@@ -2595,13 +2601,19 @@ public partial class MainWindow : Window
     /// <summary>This group's live connector, or null when the instance is not running (or is
     /// running with its extension host not yet connected).</summary>
     private VscodeConnection? ConnectorInGroup(WorkspaceViewModel ws, SessionGroupConfig group)
+        => ConnectorsInGroup(ws, group).LastOrDefault();
+
+    /// <summary>Every live connector of this group. Usually one, but an instance can have more
+    /// than one window on the same folder, and routing a specific SESSION wants to choose among
+    /// them rather than take the last.</summary>
+    private List<VscodeConnection> ConnectorsInGroup(WorkspaceViewModel ws, SessionGroupConfig group)
     {
         var conns = ConnectorsFor(ws);
-        if (conns.Count == 0) return null;
+        if (conns.Count == 0) return new List<VscodeConnection>();
         var windows = WindowEnumerator.GetCandidates()
             .Where(w => WorkspaceMetadata.IsVsCodeProcess(w.ProcessName)).ToList();
         var groups = GroupsFor(ws);
-        return conns.LastOrDefault(c => GroupIdOf(c, windows, groups) == group.Id);
+        return conns.Where(c => GroupIdOf(c, windows, groups) == group.Id).ToList();
     }
 
     /// <summary>Is the group's instance on screen at all? Separates "not running" (launch it)
@@ -2789,56 +2801,15 @@ public partial class MainWindow : Window
         ws.SetClaudeTabs(labels);
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
-        StampSessionGroups(ws, conns);
         return labels;
     }
 
-    /// <summary>Record, per session, WHICH VSCode instance its tab is currently in.
-    ///
-    /// The card is a folder and three instances can share one, so until now nothing anywhere
-    /// answered "where is this session running". The tab list is a union across the windows
-    /// (see above), which is right for the card and useless for a single session — and it
-    /// dies with its window, so the answer disappears at exactly the moment it is needed.
-    /// On 05-09-2026 the green instance went down with a stack of tabs on it: five sessions
-    /// vanished, nothing said which they had been, and clicking their cards routed them to
-    /// whichever window Shay had focused last.
-    ///
-    /// Written per connection instead of from the union, and only ever ADDED to: a stamp is
-    /// kept when the window closes, because "it was in the green one" stays true and is the
-    /// whole record. A session seen in a different window overwrites it — that is a genuine
-    /// move, not a loss.</summary>
-    private void StampSessionGroups(WorkspaceViewModel ws, List<VscodeConnection> conns)
-    {
-        var groups = GroupsFor(ws);
-        if (groups.Count == 0 || conns.Count == 0) return;
-        var windows = WindowEnumerator.GetCandidates()
-            .Where(w => WorkspaceMetadata.IsVsCodeProcess(w.ProcessName)).ToList();
-
-        foreach (var conn in conns.GroupBy(c => c.Pid).Select(g => g.Last()))
-        {
-            string gid = GroupIdOf(conn, windows, groups);
-            if (gid.Length == 0) continue;                 // window not identified — say nothing
-            var g = groups.FirstOrDefault(x => x.Id == gid);
-            string name = g?.Name ?? gid;
-            string colour = g?.Color ?? "";
-            foreach (var s in ws.Sessions)
-            {
-                // The hook read this session's own wallet variable and cannot be wrong; a tab
-                // label can be, and was. Never let a guess overwrite the certain answer.
-                if (s.GroupFromHook) continue;
-                if (!conn.Tabs.Any(t => TabLabelMatches(t.Label, s))) continue;
-                s.GroupName = name;
-                s.GroupColor = colour;
-                if (s.GroupId == gid) continue;
-                LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
-                                          (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") +
-                                          $" pid={conn.Pid} window-pid={conn.OwnerPid} from=tab");
-                s.GroupId = gid;
-                QueueSave();
-            }
-        }
-    }
-
+    // A session's window used to also be INFERRED here, by matching each connection's own
+    // tabs against the session. It is gone (v0.9.70) because it cannot work: two extension
+    // hosts on the same folder report IDENTICAL tab lists, measured 05-09-2026 — so every
+    // session "belongs" to every window, the loop's last connection wins, and the stamp
+    // flipped green/purple twice a second, which is exactly what Shay saw. The hook's
+    // --group is the only source, and it reads the session's own wallet variable.
     /// <summary>Open/resume the session's tab in VSCode. Without a live connector the request
     /// is parked; it's flushed when the extension connects (VSCode may still be launching).</summary>
     public (bool, string) OpenSessionInVscode(WorkspaceViewModel ws, SessionViewModel session,
@@ -2857,11 +2828,27 @@ public partial class MainWindow : Window
                 _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (session.SessionId, null, null, DateTime.Now);
             return (false, "no VSCode connector for this workspace yet — request queued");
         }
-        if (!conn.TrySend(new { Cmd = "openSession", SessionId = session.SessionId, Maximize = Vm.OpenSessionMaximized }))
+        // A session whose tab is nowhere in this instance is not going to be REVEALED — Claude
+        // Code's id→panel registry lives in the window, and a session whose window died is not
+        // in the new one's. `editor.open` then opens a blank conversation and does not throw, so
+        // nothing detects it. `claude --resume` reads the transcript off disk instead and needs
+        // no registry, so ask for the terminal route in exactly that case (measured 05-09-2026:
+        // two of the seven sessions recovered from the dead green instance came back empty, and
+        // both resumed first try from a terminal).
+        bool tabIsHere = ConnectorsFor(ws).Any(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)));
+        bool viaTerminal = !tabIsHere && conn.SupportsTerminalResume;
+        if (!tabIsHere && !conn.SupportsTerminalResume)
+            LogService.Info("route", $"session={session.SessionId} has no tab here and the window's " +
+                                     $"extension is {(conn.Version.Length > 0 ? conn.Version : "pre-0.6.12")} — " +
+                                     "opening in place, which may come up blank");
+        if (!conn.TrySend(new { Cmd = "openSession", SessionId = session.SessionId,
+                                Maximize = Vm.OpenSessionMaximized, Terminal = viaTerminal }))
         {
             _connectors.Remove(conn);
             return (false, "connector connection lost");
         }
+        if (viaTerminal)
+            LogService.Info("route", $"session={session.SessionId} → terminal resume (no tab in its window)");
         return (true, "");
     }
 

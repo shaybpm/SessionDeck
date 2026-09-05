@@ -54,6 +54,13 @@ public sealed class VscodeConnection
     /// nothing, so the deck falls back to revealing the tab for the user to close by hand.</summary>
     public bool SupportsCloseSession => VersionAtLeast(0, 6, 12);
 
+    /// <summary>openSession with Terminal (v0.6.15): resume through `claude --resume` in a
+    /// terminal instead of Claude Code's reveal-or-resume, which opens a BLANK tab for a session
+    /// whose window died (its id→panel registry is per-window) and does not throw, so the
+    /// catch-based fallback never fires. An older window ignores the flag and opens blank as
+    /// before, which is exactly what it did anyway.</summary>
+    public bool SupportsTerminalResume => VersionAtLeast(0, 6, 15);
+
     private bool VersionAtLeast(int major, int minor, int patch)
     {
         var parts = Version.Split('.');
