@@ -337,6 +337,28 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         }
     }
 
+    private int _groupOrder = int.MaxValue;
+    /// <summary>This group's position in the configured list, so the card can keep all of one
+    /// window's sessions together in a STABLE order. Sorting by group id would order them
+    /// alphabetically (green, orange, purple), which is not the order Shay reads them in.
+    /// Ungrouped sessions sort last, which on a card with no groups is every session and
+    /// therefore changes nothing.</summary>
+    public int GroupOrder
+    {
+        get => _groupOrder;
+        set { if (_groupOrder != value) { _groupOrder = value; Raise(); } }
+    }
+
+    private bool _showGroupHeader;
+    /// <summary>This row opens a new window's block, so the card draws a heading above it.
+    /// Recomputed after every sort; false on every card that has no groups, which is all of
+    /// them except `.claude`.</summary>
+    public bool ShowGroupHeader
+    {
+        get => _showGroupHeader;
+        set { if (_showGroupHeader != value) { _showGroupHeader = value; Raise(); } }
+    }
+
     public bool HasGroup => _groupId.Length > 0;
 
     /// <summary>What the chip says: the window's COLOUR NAME, capitalised — "Purple", "Green",
