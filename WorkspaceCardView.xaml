@@ -283,6 +283,24 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
+                                    <!-- WHICH VSCode instance this session runs in. Three of them
+                                         share the .claude folder and nothing else on the card, in
+                                         the log or in any hook payload says which one a session is
+                                         in — so when one window went down there was no way to tell
+                                         what had been lost (05-09-2026). Hidden when unknown, and
+                                         on every card whose folder has no groups. -->
+                                    <TextBlock Text="{Binding GroupLabel}" Foreground="#FF8FA6C4" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
+                                               ToolTip="The VSCode window this session runs in">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasGroup}" Value="False">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <TextBlock Text="{Binding StatusDisplay}" Foreground="#FFBBBBBB" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"/>
                                 </StackPanel>
                             </Grid>

@@ -289,6 +289,46 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
 
     public DateTime? LastEventAt { get; set; }
 
+    private string _groupId = "";
+    /// <summary>Id of the VSCode instance this session was last seen running in, "" while
+    /// unknown. Written by the deck when the session's tab is found in a window whose title
+    /// carries a group's marker, and then kept — a window that closed does not un-say where
+    /// its sessions were, and that record is the whole point (05-09-2026).</summary>
+    public string GroupId
+    {
+        get => _groupId;
+        set
+        {
+            if (_groupId == value) return;
+            _groupId = value;
+            Raise();
+            Raise(nameof(GroupLabel));
+            Raise(nameof(HasGroup));
+            Raise(nameof(TooltipText));
+        }
+    }
+
+    private string _groupName = "";
+    /// <summary>The group's human name, for the card. Runtime only: it is re-resolved from
+    /// config on every stamp, so a renamed group does not need a migration.</summary>
+    public string GroupName
+    {
+        get => _groupName;
+        set
+        {
+            if (_groupName == value) return;
+            _groupName = value;
+            Raise();
+            Raise(nameof(GroupLabel));
+            Raise(nameof(TooltipText));
+        }
+    }
+
+    public bool HasGroup => _groupId.Length > 0;
+
+    /// <summary>What the card shows: the group's name when it has one, else its bare id.</summary>
+    public string GroupLabel => _groupName.Length > 0 ? _groupName : _groupId;
+
     private bool _openAsTab;
     /// <summary>Best-effort: a Claude tab with a matching label is open in VSCode (stage D).
     /// Matched by title, so it may lag until the transcript title is scanned.</summary>
@@ -310,6 +350,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_detail.Length > 0) lines.Add(_detail);
             if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
+            // Where it runs, before the clocks: with three same-folder instances this is
+            // the first thing to know about a card, and nothing else records it.
+            if (HasGroup) lines.Add($"window: {GroupLabel}");
             // Date added 2026-08-11: a bare clock reads as "today" even when the event
             // was yesterday. Seconds dropped — the minute is the useful resolution here.
             lines.Add($"started: {StartedAt:HH:mm d'/'M}");

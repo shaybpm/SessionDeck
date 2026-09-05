@@ -215,6 +215,10 @@ public partial class MainWindow : Window
                     AutoTitle = sc.AutoTitle,
                     TabTitle = sc.TabTitle,
                     BackgroundAgents = sc.BackgroundAgents,
+                    // Which window it ran in. Restored before any connector is up, because a
+                    // deck restarted after the instance died is exactly when it is asked.
+                    GroupId = sc.GroupId,
+                    GroupName = _sessionGroups.FirstOrDefault(g => g.Id == sc.GroupId)?.Name ?? "",
                     // Restored waiting must be re-provable from the transcript, or the
                     // first scan clears it (T-0313: a fork-phantom orange otherwise
                     // survives restarts — the persisted status said waiting and the
@@ -418,6 +422,7 @@ public partial class MainWindow : Window
                     AutoTitle = s.AutoTitle,
                     TabTitle = s.TabTitle,
                     BackgroundAgents = s.BackgroundAgents,
+                    GroupId = s.GroupId,
                 });
             }
             cfg.Workspaces.Add(wc);
@@ -2434,6 +2439,20 @@ public partial class MainWindow : Window
             LogService.Debug("route", $"session={session.SessionId} → pid={holder.Pid} (holds the tab)");
             return holder;
         }
+        // The tab is gone but we recorded which instance it was in. Go back THERE, and to
+        // nowhere else: routing a session to whichever window was focused last is what put a
+        // dead green session into the purple window and opened a blank tab (05-09-2026).
+        // Returning null when its own instance is not connected is deliberate — the caller
+        // parks the request for that group and launches it, which is the correct outcome.
+        if (session is { GroupId.Length: > 0 } &&
+            GroupsFor(ws).FirstOrDefault(g => g.Id == session.GroupId) is { } home)
+        {
+            var inHome = ConnectorInGroup(ws, home);
+            LogService.Debug("route", $"session={session.SessionId} → " +
+                (inHome != null ? $"pid={inHome.Pid}" : "(nothing)") +
+                $" — its window is \"{home.Id}\"" + (inHome == null ? ", not connected" : ""));
+            return inHome;
+        }
         var focused = conns.Where(c => c.LastFocusedAt != default)
                            .OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         var pick = focused ?? conns[^1];
@@ -2732,7 +2751,48 @@ public partial class MainWindow : Window
         ws.SetClaudeTabs(labels);
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
+        StampSessionGroups(ws, conns);
         return labels;
+    }
+
+    /// <summary>Record, per session, WHICH VSCode instance its tab is currently in.
+    ///
+    /// The card is a folder and three instances can share one, so until now nothing anywhere
+    /// answered "where is this session running". The tab list is a union across the windows
+    /// (see above), which is right for the card and useless for a single session — and it
+    /// dies with its window, so the answer disappears at exactly the moment it is needed.
+    /// On 05-09-2026 the green instance went down with a stack of tabs on it: five sessions
+    /// vanished, nothing said which they had been, and clicking their cards routed them to
+    /// whichever window Shay had focused last.
+    ///
+    /// Written per connection instead of from the union, and only ever ADDED to: a stamp is
+    /// kept when the window closes, because "it was in the green one" stays true and is the
+    /// whole record. A session seen in a different window overwrites it — that is a genuine
+    /// move, not a loss.</summary>
+    private void StampSessionGroups(WorkspaceViewModel ws, List<VscodeConnection> conns)
+    {
+        var groups = GroupsFor(ws);
+        if (groups.Count == 0 || conns.Count == 0) return;
+        var windows = WindowEnumerator.GetCandidates()
+            .Where(w => WorkspaceMetadata.IsVsCodeProcess(w.ProcessName)).ToList();
+
+        foreach (var conn in conns.GroupBy(c => c.Pid).Select(g => g.Last()))
+        {
+            string gid = GroupIdOf(conn, windows, groups);
+            if (gid.Length == 0) continue;                 // window not identified — say nothing
+            string name = groups.FirstOrDefault(g => g.Id == gid)?.Name ?? gid;
+            foreach (var s in ws.Sessions)
+            {
+                if (!conn.Tabs.Any(t => TabLabelMatches(t.Label, s))) continue;
+                s.GroupName = name;
+                if (s.GroupId == gid) continue;
+                LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
+                                          (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") +
+                                          $" pid={conn.Pid} window-pid={conn.OwnerPid}");
+                s.GroupId = gid;
+                QueueSave();
+            }
+        }
     }
 
     /// <summary>Open/resume the session's tab in VSCode. Without a live connector the request
@@ -2743,6 +2803,12 @@ public partial class MainWindow : Window
         conn ??= FindConnector(ws, session);
         if (conn == null)
         {
+            // Its own instance is down. Bring THAT one back and hand it the session there —
+            // never a sibling window, which would open a blank tab on a session it has never
+            // heard of (05-09-2026, the green instance going down took five with it).
+            if (session.GroupId.Length > 0 &&
+                GroupsFor(ws).FirstOrDefault(g => g.Id == session.GroupId) is { } home)
+                return QueueGroupSession(ws, null, home, session.SessionId);
             if (ws.Path.Length > 0)
                 _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (session.SessionId, null, null, DateTime.Now);
             return (false, "no VSCode connector for this workspace yet — request queued");
@@ -2852,19 +2918,25 @@ public partial class MainWindow : Window
 
     /// <summary>The requested group has no connector. Start its instance when we know how and
     /// no window of it is already up, and park the request under the group's name so the
-    /// FIRST connector to appear cannot claim it unless it is that group's.</summary>
-    private (bool, string) QueueGroupSession(WorkspaceViewModel ws, string? prompt, SessionGroupConfig group)
+    /// FIRST connector to appear cannot claim it unless it is that group's.
+    ///
+    /// <paramref name="sessionId"/> non-null re-opens an EXISTING session in its own instance
+    /// — the recovery path after that window went down. It is the same park and the same
+    /// launch; only the command flushed at the other end differs.</summary>
+    private (bool, string) QueueGroupSession(WorkspaceViewModel ws, string? prompt,
+                                             SessionGroupConfig group, string? sessionId = null)
     {
         if (ws.Path.Length == 0) return (false, $"{group.Name}: the card has no folder to open");
-        _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (null, prompt, group.Id, DateTime.Now);
+        string what = sessionId != null ? "session" : "new session";
+        _pendingOpens[WorkspaceMetadata.NormalizePath(ws.Path)] = (sessionId, prompt, group.Id, DateTime.Now);
         if (GroupWindowIsOpen(group))
         {
-            SetStatus($"{group.Name} is open but not connected yet — the session will start there when it is");
+            SetStatus($"{group.Name} is open but not connected yet — the {what} will start there when it is");
             return (false, $"{group.Id}: window up, connector not");
         }
         if (LaunchGroup(group))
         {
-            SetStatus($"Starting {group.Name} — the session will open there once it is up");
+            SetStatus($"Starting {group.Name} — the {what} will open there once it is up");
             return (false, $"{group.Id}: launching");
         }
         _pendingOpens.Remove(WorkspaceMetadata.NormalizePath(ws.Path));

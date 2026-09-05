@@ -84,7 +84,10 @@ public sealed class CommandExecutor
             foreach (var s in w.Sessions.Where(s => (!s.Closed && !s.Phantom) || a.Flags.Contains("all")))
             {
                 string ack = s.Acknowledged ? " ack" : "";
-                sb.AppendLine($"     {s.SessionId}  {s.StatusText}{ack}  {s.DisplayTitle}" +
+                // Which window it runs in, printed for every session that has one. With three
+                // instances on one folder this is what a list is asked for after a window dies.
+                string where = s.HasGroup ? $" @{s.GroupLabel}" : "";
+                sb.AppendLine($"     {s.SessionId}  {s.StatusText}{ack}{where}  {s.DisplayTitle}" +
                               (s.Description.Length > 0 ? $"  — {s.Description}" : ""));
             }
         }
