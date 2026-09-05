@@ -161,6 +161,14 @@ printed by `list` as `@<group>`, and logged as `window session=… runs in "gree
 never cleared** — a window that closed does not un-say where its sessions were, and that record
 is the entire point.
 
+**The chip says the window's COLOUR, in that colour** (v0.9.66, Shay's request the same day).
+He calls his three instances purple, green and orange, so the chip reads `Purple` / `Green` /
+`Orange` — the group ids already are those words — drawn in `SessionGroupConfig.Color`, which
+schema 7 fills from `AppConfig.GroupColorFor` and never overwrites once set by hand. The rest of
+the row stays the ordinary grey; a group whose id is not a colour shows its id in grey too. The
+hex values are deliberately lighter than the `🟪🟩🟧` squares they stand for: this is small text
+on a dark card, where a saturated purple is unreadable.
+
 **And routing follows the stamp, not the focus.** `FindConnector` used to fall back to whichever
 window was focused last, so once a session's tab was gone its card opened a blank tab in a
 sibling instance that had never heard of it. Now a stamped session resolves only to its own

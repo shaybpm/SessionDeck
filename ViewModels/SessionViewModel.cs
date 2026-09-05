@@ -309,8 +309,8 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     }
 
     private string _groupName = "";
-    /// <summary>The group's human name, for the card. Runtime only: it is re-resolved from
-    /// config on every stamp, so a renamed group does not need a migration.</summary>
+    /// <summary>The group's human name, kept for the tooltip and the status bar. Runtime only:
+    /// re-resolved from config on every stamp, so a renamed group needs no migration.</summary>
     public string GroupName
     {
         get => _groupName;
@@ -319,15 +319,36 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_groupName == value) return;
             _groupName = value;
             Raise();
-            Raise(nameof(GroupLabel));
             Raise(nameof(TooltipText));
+        }
+    }
+
+    private string _groupColor = "";
+    /// <summary>The group's chip colour, from its config. "" draws in the ordinary card grey.</summary>
+    public string GroupColor
+    {
+        get => _groupColor;
+        set
+        {
+            if (_groupColor == value) return;
+            _groupColor = value;
+            Raise();
+            Raise(nameof(GroupBrush));
         }
     }
 
     public bool HasGroup => _groupId.Length > 0;
 
-    /// <summary>What the card shows: the group's name when it has one, else its bare id.</summary>
-    public string GroupLabel => _groupName.Length > 0 ? _groupName : _groupId;
+    /// <summary>What the chip says: the window's COLOUR NAME, capitalised — "Purple", "Green",
+    /// "Orange". Shay names his three instances by colour and asked for the chip in those words
+    /// (05-09-2026); the group ids already are those words, so nothing needs mapping. A group
+    /// whose id is not a colour simply shows its id, which is still the best name it has.</summary>
+    public string GroupLabel => _groupId.Length == 0 ? ""
+        : char.ToUpperInvariant(_groupId[0]) + _groupId[1..];
+
+    /// <summary>The chip's colour: the window's own, so the card is read at a glance rather
+    /// than decoded. Everything else on the row stays the ordinary grey.</summary>
+    public Brush GroupBrush => MakeBrush(_groupColor.Length > 0 ? _groupColor : "#BBBBBB");
 
     private bool _openAsTab;
     /// <summary>Best-effort: a Claude tab with a matching label is open in VSCode (stage D).

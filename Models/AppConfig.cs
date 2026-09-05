@@ -278,6 +278,12 @@ public class SessionGroupConfig
     /// <summary>A substring of this instance's window titles. Must appear in NO other
     /// instance's - the coloured square of Shay's `window.title` is exactly that.</summary>
     public string TitleMarker { get; set; } = "";
+    /// <summary>The colour this instance is KNOWN BY, drawn on every session card that runs in
+    /// it. Shay's three instances are "the purple one", "the green one" and "the orange one" and
+    /// he asked for the chip in those words and in those colours (05-09-2026) - a name he has to
+    /// decode is worse than no chip. Empty = the chip is drawn in the ordinary card grey, which
+    /// is right for any group that is not one of his three.</summary>
+    public string Color { get; set; } = "";
     /// <summary>Only groups whose path matches the target card apply; empty = every card.
     /// Without it a plain click on an ordinary repo card would ask for the default group and
     /// find nothing.</summary>
@@ -351,7 +357,7 @@ public class AppConfig
         string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string claude = Path.Combine(home, ".claude");
         SessionGroupConfig G(string id, string name, string modifier, string marker,
-                             string launcher, string hebrew) => new()
+                             string launcher, string hebrew, string colour) => new()
         {
             Id = id,
             Name = name,
@@ -360,13 +366,42 @@ public class AppConfig
             WorkspacePath = claude,
             Launcher = Path.Combine(claude, "scripts", launcher),
             Aliases = new List<string> { hebrew },
+            Color = colour,
         };
         return new List<SessionGroupConfig>
         {
-            G("purple", "🟪 DEV MGMT",   "",     "🟪", "launch-dev-mgmt-window.vbs",  "סגול"),
-            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", "launch-dev-mgmt2-window.vbs", "ירוק"),
-            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", "launch-dev-mgmt3-window.vbs", "כתום"),
+            G("purple", "🟪 DEV MGMT",   "",     "🟪", "launch-dev-mgmt-window.vbs",  "סגול", GroupColorFor("purple")),
+            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", "launch-dev-mgmt2-window.vbs", "ירוק", GroupColorFor("green")),
+            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", "launch-dev-mgmt3-window.vbs", "כתום", GroupColorFor("orange")),
         };
+    }
+
+    /// <summary>The chip colour a group is drawn in when its config carries none. Lifted to the
+    /// three names Shay uses for his instances; anything else gets "" and stays card grey.
+    /// Lightened well past the emoji squares they stand for, because the chip is small text on
+    /// a dark card and a saturated purple is unreadable there.</summary>
+    public static string GroupColorFor(string id) => id.ToLowerInvariant() switch
+    {
+        "purple" => "#B99CF5",
+        "green"  => "#5FD48A",
+        "orange" => "#F0964B",
+        _        => "",
+    };
+
+    /// <summary>Schema 7: groups seeded before the chip existed learn their colour. Only fills
+    /// an EMPTY one, so a colour set by hand in config.json is never overwritten.</summary>
+    public static int FillMissingGroupColors(List<SessionGroupConfig> groups)
+    {
+        int filled = 0;
+        foreach (var g in groups)
+        {
+            if (g.Color.Length > 0) continue;
+            string c = GroupColorFor(g.Id);
+            if (c.Length == 0) continue;
+            g.Color = c;
+            filled++;
+        }
+        return filled;
     }
 
     /// <summary>Schema 6: the seeded groups learn their launcher. Schema 5 had the deck build
@@ -387,10 +422,11 @@ public class AppConfig
         }
         return filled;
     }
-    public int SchemaVersion { get; set; } = 6;   // 3: `done` moved green→purple, `he` took green
+    public int SchemaVersion { get; set; } = 7;   // 3: `done` moved green→purple, `he` took green
                                                   // 4: usage stamps rebuilt — machine activity stopped counting as use
                                                   // 5: SessionGroups seeded with the three .claude management instances
                                                   // 6: a group launches by its own script, not by a command line the deck builds
+                                                  // 7: session groups carry the colour their chip is drawn in
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;
