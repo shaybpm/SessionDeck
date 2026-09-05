@@ -155,11 +155,21 @@ and `clear` reset. That path now logs what it did, which it never used to.
 **Every session records WHICH VSCode instance it runs in** (this fork, v0.9.65). Three instances
 share `C:\Users\Shay\.claude` and a card is a folder, so until this the deck merged their tab
 lists into one union and no store anywhere — deck, hook payload, transcript — answered "where is
-this session". `StampSessionGroups` writes `SessionConfig.GroupId` per connection, from
-`GroupIdOf`, whenever a window's own tabs match a session; it is persisted, shown on the card,
-printed by `list` as `@<group>`, and logged as `window session=… runs in "green"`. **A stamp is
-never cleared** — a window that closed does not un-say where its sessions were, and that record
-is the entire point.
+this session". `SessionConfig.GroupId` holds the answer: persisted, shown on the card, printed by
+`list` as `@<group>`, logged as `window session=… runs in "green"`. **A stamp is never cleared** —
+a window that closed does not un-say where its sessions were, and that record is the entire point.
+
+**Two sources write it, and only one of them is certain** (v0.9.67). The hook reads
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` — the variable that binds a window to a Claude account, so it
+is set by exactly one instance's launcher and inherited by every session started there — and
+sends `--group` on `SessionStart`, `UserPromptSubmit` and `Stop`. That is `from=hook`, it is
+right by construction, and `SessionViewModel.GroupFromHook` locks it. `StampSessionGroups` is the
+fallback, matching a session against each connection's own tabs (`from=tab`), and it is a GUESS:
+two live sessions were genuinely titled `execute item #3.0`, one green and one purple, and it
+handed the green one the purple tab. It may never overwrite a hook stamp. **The same wallet is
+logged independently by `~/.claude/hooks/session-account-tag.ps1` into
+`state/token-analytics/session-accounts.jsonl`, one line per `SessionStart`** — which is how the
+history was reconstructed after the fact, and the place to look when a window dies.
 
 **The chip says the window's COLOUR, in that colour** (v0.9.66, Shay's request the same day).
 He calls his three instances purple, green and orange, so the chip reads `Purple` / `Green` /

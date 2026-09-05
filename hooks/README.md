@@ -20,6 +20,27 @@
 Every event also forwards, when present: `transcript_path`, `permission_mode`, and
 `--entrypoint` (see below).
 
+### Which VSCode window the session is in (v0.9.67)
+
+`SessionStart`, `UserPromptSubmit` and `Stop` also send `--group purple|green|orange` when the
+session is running in one of the three management instances. Those three events are exactly the
+ones that can CREATE a session record in the deck, which is the same reason `--workspace` rides
+on them.
+
+**It comes from the environment, not from a payload field.** Claude Code reports no account and
+no window. `CLAUDE_SECURESTORAGE_CONFIG_DIR` is what binds a window to a Claude account, so it is
+set by exactly one instance's launcher (`~/.claude/scripts/launch-dev-mgmt<N>-window.vbs`) and is
+inherited by every session started in that window. The bridge reads the directory's NAME only —
+`.claude-mgmt` → purple, `-mgmt2` → green, `-mgmt3` → orange — and never opens a file inside it,
+which is where the credentials are. **Its absence is a value**: the default instance, no group,
+no flag sent.
+
+**Why the deck cannot work this out for itself.** Several instances have the same folder open, so
+a session can only be placed by matching its tab's label — and labels collide. Measured
+05-09-2026: two live sessions were both titled `execute item #3.0`, one green and one purple, and
+the correlation put the green one in the purple window. A stamp from this flag is therefore a
+lock the label matcher may not overwrite; the deck log says `from=hook` or `from=tab`.
+
 ### Telling a headless session apart (v0.9.41)
 
 A scheduled task or a runner firing `claude --print` produces hooks that are
