@@ -73,6 +73,13 @@ public class TaskEntry
     public string? Workspace { get; set; }           // full folder path — matched to a card by path
     public List<string> Sessions { get; set; } = new();
     public string? Url { get; set; }                 // opened via ShellExecute (e.g. obsidian://)
+    /// <summary>The launch phrase for a session opened from THIS task, overriding the
+    /// document's newSessionPrompt. Same &lt;id&gt;/&lt;name&gt; placeholders. It exists because
+    /// one document can hold cards that are not the same KIND of thing: the holdings view's
+    /// cards are packages, which open with "holding session &lt;slug&gt;" and never with
+    /// "execute item", and a held item opened by number is the exact failure the holding-session
+    /// skill forbids. The document template stays right for every card that does not carry one.</summary>
+    public string? SessionPrompt { get; set; }
     /// <summary>Label for the url button. The deck cannot know what a url MEANS — an
     /// external document, or (as this deck's producer uses it) a drill into the card's own
     /// sub-tasks — and calling all of them "Open task" made a navigation card read as a unit

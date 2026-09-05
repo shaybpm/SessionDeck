@@ -19,6 +19,8 @@ public sealed class TaskItemViewModel
     public IReadOnlyList<string> Sessions { get; init; } = Array.Empty<string>();
     public string Url { get; init; } = "";
     public string UrlLabel { get; init; } = "";
+    /// <summary>This card's own launch phrase, or "" to use the document's template.</summary>
+    public string SessionPrompt { get; init; } = "";
 
     public bool HasDescription => Description.Length > 0;
     public bool HasStatus => Status.Length > 0;
@@ -79,6 +81,7 @@ public sealed class TaskItemViewModel
             Sessions = entry.Sessions.Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
             Url = entry.Url?.Trim() ?? "",
             UrlLabel = entry.UrlLabel?.Trim() ?? "",
+            SessionPrompt = entry.SessionPrompt?.Trim() ?? "",
             StatusBrush = brush,
         };
     }
