@@ -230,6 +230,16 @@ public class SessionConfig
     /// being over — without this a restart mid-run read the silence as death and dropped the
     /// card to idle while five agents were still working (Shay, 21-08-2026).</summary>
     public int BackgroundAgents { get; set; }
+    /// <summary>Which VSCode instance this session was last SEEN running in — the id of the
+    /// <see cref="SessionGroupConfig"/> whose window held its tab. "" while unknown.
+    ///
+    /// Persisted because it is the only record of it. Nothing else in the deck or in Claude
+    /// Code knows which of three same-folder instances a session lives in: the hook payload
+    /// carries no account and no window, and a tab list dies with its window. On 05-09-2026
+    /// the green instance went down with a stack of tabs on it and Shay could not establish
+    /// WHICH sessions had been lost, let alone put them back — and clicking their cards sent
+    /// them to the purple window, which knows nothing about them and opened blank tabs.</summary>
+    public string GroupId { get; set; } = "";
 }
 
 /// <summary>Session status → border style. Lives in config so the mapping can change

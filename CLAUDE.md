@@ -152,6 +152,23 @@ known session to `idle` silently — so looking at a session destroyed the state
 read. Since v0.9.40 `resume` and `compact` keep the status and the agent count; only `startup`
 and `clear` reset. That path now logs what it did, which it never used to.
 
+**Every session records WHICH VSCode instance it runs in** (this fork, v0.9.65). Three instances
+share `C:\Users\Shay\.claude` and a card is a folder, so until this the deck merged their tab
+lists into one union and no store anywhere — deck, hook payload, transcript — answered "where is
+this session". `StampSessionGroups` writes `SessionConfig.GroupId` per connection, from
+`GroupIdOf`, whenever a window's own tabs match a session; it is persisted, shown on the card,
+printed by `list` as `@<group>`, and logged as `window session=… runs in "green"`. **A stamp is
+never cleared** — a window that closed does not un-say where its sessions were, and that record
+is the entire point.
+
+**And routing follows the stamp, not the focus.** `FindConnector` used to fall back to whichever
+window was focused last, so once a session's tab was gone its card opened a blank tab in a
+sibling instance that had never heard of it. Now a stamped session resolves only to its own
+group; if that instance is down, `OpenSessionInVscode` parks the request under the group and
+launches it through its own launcher, exactly as a new grouped session does. Measured 05-09-2026:
+the green instance went down carrying five sessions, nothing said which they had been, and every
+click landed in purple.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
