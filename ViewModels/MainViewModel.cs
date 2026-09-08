@@ -22,12 +22,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public void RebuildCards()
     {
-        Cards.Clear();
+        // Build the wanted sequence first and do nothing at all when it already matches. Every
+        // one of the eleven callers of SortWorkspaces ends here, most of them on an event that
+        // moved no card - a status change, a session arriving on a card that was already at the
+        // top - and a Clear() on the bound collection tears down and re-creates every card view
+        // in the deck, some 300 of them. That was the other half of the 08-09-2026 leak, and it
+        // is most of the CPU those events cost even with the leak fixed.
+        var wanted = new List<WorkspaceViewModel>(Cards.Count);
         foreach (var w in Workspaces)
         {
-            if (w.IsSplit) foreach (var g in w.GroupCards) Cards.Add(g);
-            else Cards.Add(w);
+            if (w.IsSplit) wanted.AddRange(w.GroupCards);
+            else wanted.Add(w);
         }
+        if (wanted.Count == Cards.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < wanted.Count; i++)
+                if (!ReferenceEquals(wanted[i], Cards[i])) { same = false; break; }
+            if (same) return;
+        }
+        Cards.Clear();
+        foreach (var c in wanted) Cards.Add(c);
     }
 
     /// <summary>User-defined toolbar toggles (config: customToggles); empty = no UI.</summary>
