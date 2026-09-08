@@ -368,7 +368,7 @@
                          is sized BY its content, so asking it how wide it is would feed the card
                          width back into itself. The viewport is the only independent number. -->
                     <ScrollViewer VerticalScrollBarVisibility="Auto" SizeChanged="CardsHost_SizeChanged">
-                        <ItemsControl x:Name="CardsHost" ItemsSource="{Binding Workspaces}">
+                        <ItemsControl x:Name="CardsHost" ItemsSource="{Binding Cards}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <WrapPanel/>

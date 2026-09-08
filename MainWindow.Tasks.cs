@@ -71,6 +71,16 @@ public partial class MainWindow
             if (byPath.TryGetValue(WorkspaceMetadata.NormalizePath(ws.Path), out var tasks))
                 foreach (var t in tasks) ws.WorkspaceTasks.Add(t);
             if (ws.WorkspaceTasks.Count == 0) ws.TasksExpanded = false;
+            // A group card shows the same folder, so it carries the same tasks. Mirrored rather
+            // than matched again: they are keyed by workspace PATH, and all of a split card's
+            // group cards share their parent's.
+            foreach (var card in ws.GroupCards)
+            {
+                card.TasksEnabled = ws.TasksEnabled;
+                card.WorkspaceTasks.Clear();
+                foreach (var t in ws.WorkspaceTasks) card.WorkspaceTasks.Add(t);
+                if (card.WorkspaceTasks.Count == 0) card.TasksExpanded = false;
+            }
         }
     }
 

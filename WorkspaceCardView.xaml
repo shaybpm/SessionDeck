@@ -1,4 +1,4 @@
-<UserControl x:Class="SessionDeck.WorkspaceCardView"
+﻿<UserControl x:Class="SessionDeck.WorkspaceCardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:SessionDeck"
@@ -14,6 +14,15 @@
             <Style.Triggers>
                 <DataTrigger Binding="{Binding VisibleInDeck}" Value="False">
                     <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+                <!-- A group card sizes to its own content instead of stretching to the row.
+                     Every other card fills that height with its DWM thumbnail; a group card has
+                     none, and its sessions panel is docked to the BOTTOM, so stretching left a
+                     tall empty gap ABOVE the sessions - worse than the long card the split was
+                     meant to fix. Top-aligned, the three .claude cards are each exactly as tall
+                     as they need to be, and the empty one is a header and a button. -->
+                <DataTrigger Binding="{Binding IsGroupCard}" Value="True">
+                    <Setter Property="VerticalAlignment" Value="Top"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -352,8 +361,23 @@
                 </ItemsControl>
             </StackPanel>
 
-            <!-- live DWM thumbnail of the bound VSCode window -->
+            <!-- Live DWM thumbnail of the bound VSCode window.
+                 Collapsed on a group card: the three .claude cards were split apart precisely
+                 because that card was too tall, and their parent binds no window anyway (Shay
+                 sets a custom window.title per instance, so BuildTitlePattern's
+                 "<name> - Visual Studio Code" matches none of them). Three copies of the
+                 "no window" placeholder would cost 510px to say nothing. -->
             <Grid Height="170">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsGroupCard}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Setter Property="Height" Value="0"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <Border x:Name="ThumbArea" Background="#FF0D0D0D" Margin="8,6,8,2" CornerRadius="4"/>
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel.Style>

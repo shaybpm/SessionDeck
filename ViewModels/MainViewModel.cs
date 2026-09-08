@@ -9,6 +9,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<WorkspaceViewModel> Workspaces { get; } = new();
 
+    /// <summary>What the DECK draws, which is no longer one item per workspace: a workspace
+    /// split into group cards contributes those instead of itself (WorkspaceViewModel, "group
+    /// cards"). Every other consumer — persistence, the connector, the sweeps, the scans, the
+    /// session engine — keeps iterating <see cref="Workspaces"/> and therefore sees each session
+    /// exactly once, which is the whole reason the split was done at this level.</summary>
+    public ObservableCollection<WorkspaceViewModel> Cards { get; } = new();
+
+    /// <summary>Refill <see cref="Cards"/> from <see cref="Workspaces"/>. Cheap and wholesale:
+    /// the collection is a few hundred items and rebuilding it is far easier to keep correct
+    /// than splicing it, which has to be right on add, remove, hide, sort and re-split alike.
+    /// </summary>
+    public void RebuildCards()
+    {
+        Cards.Clear();
+        foreach (var w in Workspaces)
+        {
+            if (w.IsSplit) foreach (var g in w.GroupCards) Cards.Add(g);
+            else Cards.Add(w);
+        }
+    }
+
     /// <summary>User-defined toolbar toggles (config: customToggles); empty = no UI.</summary>
     public ObservableCollection<CustomToggleViewModel> CustomToggles { get; } = new();
 

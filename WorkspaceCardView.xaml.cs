@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -207,36 +207,44 @@ public partial class WorkspaceCardView : UserControl
 
     // ---- interactions ----
 
+    // Every handler below acts on `Vm.Owner`, not on `Vm`. On an ordinary card the two ARE the
+    // same object; on a group card (the split .claude cards) `Vm` is a presentation mirror and
+    // the parent is what the engine knows about, so anything that focuses, edits, hides, removes
+    // or routes a session has to reach past the card that was clicked. `Vm` itself is still right
+    // for a card's OWN state — Expanded and TasksExpanded below.
     private void Card_MouseUp(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject d && FindAncestorButton(d) != null) return;
-        if (Vm != null) Owner?.FocusWorkspace(Vm);
+        if (Vm != null) Owner?.FocusWorkspace(Vm.Owner);
     }
 
     private void Session_MouseUp(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: SessionViewModel session } && Vm != null)
         {
-            Owner?.HandleSessionClick(Vm, session);
+            Owner?.HandleSessionClick(Vm.Owner, session);
             e.Handled = true;
         }
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.EditWorkspace(Vm);
+        if (Vm != null) Owner?.EditWorkspace(Vm.Owner);
     }
 
     private void Pin_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.PinWorkspace(Vm);
+        if (Vm != null) Owner?.PinWorkspace(Vm.Owner);
     }
 
     private void Expand_Click(object sender, RoutedEventArgs e)
     {
         if (Vm is not { } vm) return;
         vm.Expanded = !vm.Expanded;
-        if (vm.Expanded) Owner?.DiscoverHistoricalSessions(vm);
+        // Expanded is the CARD's own state, but the sessions are discovered into the parent
+        // and then re-partitioned; ones the transcript folder yields with no window stamp land
+        // on the default group's card.
+        if (vm.Expanded) Owner?.DiscoverHistoricalSessions(vm.Owner);
     }
 
     private void Tasks_Click(object sender, RoutedEventArgs e)
@@ -253,7 +261,7 @@ public partial class WorkspaceCardView : UserControl
 
     private void Hide_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.ToggleHideWorkspace(Vm);
+        if (Vm != null) Owner?.ToggleHideWorkspace(Vm.Owner);
     }
 
     /// <summary>The modifier held here picks the VSCode instance on a card that has session
@@ -261,17 +269,21 @@ public partial class WorkspaceCardView : UserControl
     private void NewSession_Click(object sender, RoutedEventArgs e)
     {
         if (Vm == null || Owner == null) return;
-        Owner.NewSessionInVscode(Vm, null, Owner.GroupForModifiers(Vm));
+        // A group card IS the choice of instance, so it needs no modifier: the card Shay clicked
+        // already says which window he wants, and the modifier stays for the unsplit cards.
+        var group = Vm.IsGroupCard ? Owner.GroupById(Vm.GroupId)
+                                   : Owner.GroupForModifiers(Vm.Owner);
+        Owner.NewSessionInVscode(Vm.Owner, null, group);
     }
 
     private void CloseWindow_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.CloseWorkspaceWindow(Vm);
+        if (Vm != null) Owner?.CloseWorkspaceWindow(Vm.Owner);
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
-        if (Vm != null) Owner?.RemoveWorkspace(Vm);
+        if (Vm != null) Owner?.RemoveWorkspace(Vm.Owner);
     }
 
     /// <summary>The ⋯ actions menu (feedback 2026-07-19): sync dynamic items, then open.</summary>

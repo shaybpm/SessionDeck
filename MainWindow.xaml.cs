@@ -286,6 +286,8 @@ public partial class MainWindow : Window
             }
             foreach (var s in ws.Sessions) RefreshPhantom(s);
             ws.RefreshSessionVisibility();
+            // Before the sort: SortSessions fills the group cards, so they have to exist first.
+            EnsureGroupCards(ws);
             SortSessions(ws);
             RefreshMetadata(ws);
             Vm.Workspaces.Add(ws);
@@ -461,6 +463,10 @@ public partial class MainWindow : Window
             Name = WorkspaceMetadata.NameFromPath(path),
         };
         RefreshMetadata(ws);
+        // A folder that already has groups configured for it is split from the moment it is
+        // added, not only when it is loaded from config — otherwise re-adding .claude by hand
+        // would produce the one tall card again until the next restart.
+        EnsureGroupCards(ws);
         Vm.Workspaces.Add(ws);
         TryBindWorkspace(ws);
         ApplyDeckVisibility();
@@ -1262,6 +1268,10 @@ public partial class MainWindow : Window
             if (current != target)
                 Vm.Workspaces.Move(current, target);
         }
+        // The deck draws Cards, not Workspaces: rebuilt here so a split card's group cards land
+        // where their parent sorted to and stay adjacent. Every add, remove and re-sort already
+        // ends up here, which is why this is the only place that has to remember.
+        Vm.RebuildCards();
     }
 
     /// <summary>
@@ -1309,6 +1319,12 @@ public partial class MainWindow : Window
                 // `done` sessions, which are the ones that finished answering and are waiting to
                 // be read. Shay had 12 open sessions across 5 windows and saw 4 (08-08-2026).
                 && (!openOnly || ws.Expanded || ws.IsActive);
+            // Each group card answers the filters on its OWN sessions: hiding "open only" by the
+            // parent would keep all three cards alive because one window is busy, which is
+            // exactly the long-card problem again. Hidden and the search hit stay the parent's.
+            foreach (var card in ws.GroupCards)
+                card.VisibleInDeck = ws.VisibleInDeck
+                    && (!openOnly || card.Expanded || card.IsActive);
         }
         UpdateEmptyHint();
         RefreshBlinkAndSummary();   // hidden workspaces don't count in the summary dots
@@ -1640,6 +1656,11 @@ public partial class MainWindow : Window
         LogService.Info("window", $"session={s.SessionId} runs in \"{gid}\"" +
                                   (s.GroupId.Length > 0 ? $" (was \"{s.GroupId}\")" : "") + " from=hook");
         s.GroupId = gid;
+        // The stamp decides WHICH group card holds this session, so a stamp that lands after the
+        // session is already on a card has to move it — a resume that comes up in a different
+        // instance is exactly that. A session not yet added finds no home here and is sorted by
+        // its own caller a few lines later.
+        if (Vm.FindSession(s.SessionId) is { } home) SortSessions(home.Item1);
         QueueSave();
     }
 
@@ -2019,6 +2040,75 @@ public partial class MainWindow : Window
 
     /// <summary>Sessions order like workspaces: open before closed, most recent activity
     /// first within each group. Stable in-place sort via Move.</summary>
+    /// <summary>Give a workspace one card per session group configured for its path, or leave it
+    /// alone when it has none. Idempotent, and called once per workspace as it is built.
+    ///
+    /// Only <c>.claude</c> qualifies today: it is the one folder three VSCode instances share, so
+    /// it is the one card that carried three windows' sessions and grew far taller than the rest.
+    /// The cards are created in group order and stay adjacent in the deck, because
+    /// <see cref="MainViewModel.RebuildCards"/> emits them where their parent sits.</summary>
+    private void EnsureGroupCards(WorkspaceViewModel ws)
+    {
+        if (ws.IsGroupCard || ws.GroupCards.Count > 0 || ws.Path.Length == 0) return;
+        // NOT GroupsFor: that one also returns groups with an EMPTY WorkspacePath, which apply to
+        // every card by design (they are what a modifier-click on an ordinary repo card uses). A
+        // split has to be opt-in per folder — one wildcard group would otherwise shatter all 297
+        // cards into three apiece. Only a group that names THIS path splits it.
+        string norm = WorkspaceMetadata.NormalizePath(ws.Path);
+        var groups = _sessionGroups
+            .Where(g => g.Id.Length > 0 && g.WorkspacePath.Length > 0 &&
+                        WorkspaceMetadata.NormalizePath(g.WorkspacePath) == norm)
+            .ToList();
+        if (groups.Count < 2) return;   // one group is not a split, it is the card itself
+        foreach (var g in groups)
+        {
+            ws.GroupCards.Add(new WorkspaceViewModel
+            {
+                Id = ws.Id,
+                Parent = ws,
+                GroupId = g.Id,
+                Path = ws.Path,
+                // The group's own name, which is what Shay calls these windows — the squares in
+                // "🟪 DEV MGMT" are the same ones in the window titles and on the session chips.
+                Name = g.Name.Length > 0 ? g.Name : g.Id,
+                // And its own colour, so the purple card is purple. A group with no colour falls
+                // through to the ordinary card grey like any other card.
+                CustomColor = g.Color.Length > 0 ? g.Color : null,
+            });
+        }
+        LogService.Info("cards", $"ws=\"{ws.DisplayTitle}\" split into {ws.GroupCards.Count} " +
+            $"group cards: {string.Join(", ", ws.GroupCards.Select(c => c.GroupId))}");
+    }
+
+    /// <summary>Refill each group card from its parent's sessions. The parent keeps the only real
+    /// collection; a group card holds the SAME session objects, filtered by the window stamp the
+    /// hook put on them, in the order the parent already sorted them into.
+    ///
+    /// A session with no stamp lands on the default group's card — the one a plain click opens —
+    /// rather than vanishing. There is exactly one such session here (a closed one predating the
+    /// stamp), but a card that silently drops sessions would be a bad way to find that out.</summary>
+    private static void RepartitionGroupCards(WorkspaceViewModel ws)
+    {
+        if (ws.GroupCards.Count == 0) return;
+        var fallback = ws.GroupCards.FirstOrDefault(c => c.GroupId.Length > 0);
+        foreach (var card in ws.GroupCards) card.Sessions.Clear();
+        foreach (var s in ws.Sessions)
+        {
+            var target = ws.GroupCards.FirstOrDefault(c =>
+                string.Equals(c.GroupId, s.GroupId, StringComparison.OrdinalIgnoreCase)) ?? fallback;
+            target?.Sessions.Add(s);
+        }
+        foreach (var card in ws.GroupCards)
+        {
+            // Mirrored, not recomputed: the parent owns branch and visibility, and a group card
+            // that decided either for itself would drift from the folder it is showing.
+            card.Branch = ws.Branch;
+            card.Hidden = ws.Hidden;
+            card.ShowHeadless = ws.ShowHeadless;
+            card.RefreshSessionVisibility();
+        }
+    }
+
     private static void SortSessions(WorkspaceViewModel ws)
     {
         // Grouped by WINDOW first, then by recency inside the window (Shay, 05-09-2026: "הם כל
@@ -2039,6 +2129,9 @@ public partial class MainWindow : Window
                 ws.Sessions.Move(current, target);
         }
         ws.RefreshGroupHeaders();
+        // The group cards mirror this order, so they are refilled from it rather than sorted
+        // again — one sort, one truth. Every path that changes sessions already calls this.
+        RepartitionGroupCards(ws);
     }
 
     /// <summary>Usage, for the deck's "last used" and "most used" orders — bumped only by a

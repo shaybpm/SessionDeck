@@ -16,6 +16,38 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
 {
     public int Id { get; init; }
 
+    // ---- group cards (Shay, 08-09-2026) ----
+    //
+    // Three VSCode instances share C:\Users\Shay\.claude, so by path they are ONE workspace and
+    // the deck drew them as one card with a heading per window. With 40 sessions on it that card
+    // ran far taller than every other and broke the wrap ("החלון הזה ממש ארוך ואז הוא משבש את
+    // התצוגה"), so a workspace that has session groups now draws one card PER GROUP instead.
+    //
+    // The split is presentation only, and deliberately so. The parent stays the single entry in
+    // MainViewModel.Workspaces and keeps the authoritative Sessions collection, so persistence,
+    // the connector, every sweep and every scan go on seeing exactly one .claude workspace and
+    // needed no change. A group card is a mirror: same session objects, filtered by their GroupId
+    // stamp, rebuilt by MainWindow.RepartitionGroupCards.
+
+    /// <summary>The group this card shows, "" on an ordinary card. Set once at creation.</summary>
+    public string GroupId { get; init; } = "";
+
+    /// <summary>The card this one was split off, null on an ordinary card.</summary>
+    public WorkspaceViewModel? Parent { get; init; }
+
+    public bool IsGroupCard => Parent != null;
+
+    /// <summary>The workspace that actually owns the state: the parent for a group card, itself
+    /// for every other. Anything reaching past presentation — persistence, connectors, the
+    /// session engine — goes through this and never through the card it was clicked on.</summary>
+    public WorkspaceViewModel Owner => Parent ?? this;
+
+    /// <summary>This card's group cards, empty unless it was split. Ordinary cards never
+    /// allocate one.</summary>
+    public List<WorkspaceViewModel> GroupCards { get; } = new();
+
+    public bool IsSplit => GroupCards.Count > 0;
+
     private string _path = "";
     /// <summary>Folder path; empty for drag-in adds until a hook reports cwd (decision 21).</summary>
     public string Path
@@ -324,7 +356,10 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// AND after every visibility change, which is why it lives here and not in the sorter.</summary>
     public void RefreshGroupHeaders()
     {
-        bool anyGrouped = Sessions.Any(s => s.HasGroup);
+        // A split card answers the same need better: each window has its own card now, so the
+        // heading would just repeat the card's own title on every block. Headings survive for a
+        // grouped workspace that was NOT split (no groups configured for its path).
+        bool anyGrouped = Sessions.Any(s => s.HasGroup) && !IsGroupCard && !IsSplit;
         string? lastGroup = null;
         foreach (var s in Sessions)
         {
