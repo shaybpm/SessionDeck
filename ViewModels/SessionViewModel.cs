@@ -393,6 +393,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_detail.Length > 0) lines.Add(_detail);
             if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
+            // Headline only — the ⛁ chip's own tooltip carries the breakdown.
+            if (_tokens is { Requests: > 0 } tk)
+                lines.Add($"tokens: {Compact(tk.Weighted)} effective ({Compact(tk.Raw)} raw)");
             // Where it runs, before the clocks: with three same-folder instances this is
             // the first thing to know about a card, and nothing else records it.
             if (HasGroup) lines.Add($"window: {GroupLabel}");
@@ -563,6 +566,60 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
                    "Their transcripts are on disk — nothing was lost, but nothing finished either.";
         }
     }
+
+    private TokenUsage? _tokens;
+
+    /// <summary>What this session has spent, from the transcript scan. Not persisted: the
+    /// scanner recomputes it from the file, so a deck restart refills it on the next pass.
+    /// </summary>
+    public TokenUsage? Tokens
+    {
+        get => _tokens;
+        set
+        {
+            if (_tokens == value) return;   // record: value equality, so an unchanged tally is free
+            _tokens = value;
+            Raise(nameof(HasTokens));
+            Raise(nameof(TokensText));
+            Raise(nameof(TokensTip));
+            Raise(nameof(TooltipText));
+        }
+    }
+
+    public bool HasTokens => _tokens is { Requests: > 0 };
+
+    /// <summary>The chip: the effective total, cache discount applied. The raw count is 5-6x
+    /// larger and would say nothing except "this session has been going a while".</summary>
+    public string TokensText => _tokens is { } t ? "⛁" + Compact(t.Weighted) : "";
+
+    public string TokensTip
+    {
+        get
+        {
+            if (_tokens is not { Requests: > 0 } t) return "";
+            var lines = new List<string>
+            {
+                $"{Compact(t.Weighted)} tokens over {t.Requests} turn{(t.Requests == 1 ? "" : "s")}, " +
+                $"charged as input-equivalent — {Compact(t.Raw)} raw, but a cache read bills at a tenth",
+                $"    cache reads {Compact(t.CacheRead)} → {Compact(t.CacheReadWeighted)}  ·  " +
+                $"cache writes {Compact(t.CacheWrite)} → {Compact(t.CacheWriteWeighted)}  ·  " +
+                $"output {Compact(t.Output)} → {Compact(t.OutputWeighted)}  ·  " +
+                $"fresh input {Compact(t.Input)}",
+            };
+            if (t.ContextWindow > 0)
+                lines.Add($"    context now: {Compact(t.ContextNow)} of {Compact(t.ContextWindow)} " +
+                          $"({t.ContextNow * 100 / t.ContextWindow}%)");
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    /// <summary>Token counts at card width: 52, 6.1k, 614k, 10.1M. Three significant figures
+    /// is both as much as fits and as much as means anything here.</summary>
+    private static string Compact(long n) =>
+        n >= 1_000_000 ? (n / 1_000_000d).ToString("0.#") + "M"
+        : n >= 10_000 ? (n / 1_000d).ToString("0") + "k"
+        : n >= 1_000 ? (n / 1_000d).ToString("0.#") + "k"
+        : n.ToString();
 
     private bool _acknowledged;
     public bool Acknowledged

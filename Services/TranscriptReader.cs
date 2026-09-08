@@ -32,7 +32,43 @@ public sealed record TranscriptInfo(
     string? AutoTitle,
     PendingCall? Pending = null,
     IReadOnlyList<string>? LabelCandidates = null,
-    LostAgents? Lost = null);
+    LostAgents? Lost = null,
+    TokenUsage? Tokens = null);
+
+/// <summary>What a session has spent, tallied from the <c>usage</c> block of every assistant
+/// turn in its transcript.
+///
+/// Carries a raw and a weighted total because on a long session they differ by 5-6x and only
+/// the weighted one means anything: the API bills a cache READ at a tenth of a fresh input
+/// token, and by the twentieth turn the re-read context dwarfs everything else. Measured
+/// 2026-09-08 on a 26-turn Opus session: 3.22M raw, of which 3.10M was cache reads, against
+/// 613k weighted; on a 160-turn one, 59.9M against 10.1M.
+///
+/// The weighted unit is an INPUT-EQUIVALENT token — each line converted at its price ratio to
+/// one base input token of the model that produced it. Deliberately a token count and not
+/// money: those ratios are identical on Opus 5 ($5/$25 per MTok), Sonnet 5 ($2/$10), Haiku 4.5
+/// ($1/$5) and Fable 5 ($10/$50), so one weight table covers every model with no price list,
+/// and a session that mixes models still sums correctly. The one exception is the Fable/Mythos
+/// 5.1 cache read at 0.025x, applied per request.
+///
+/// What it does NOT include: a subagent's own spend. An in-process one writes
+/// <c>isSidechain</c> turns into this same file and is counted, but a BACKGROUND agent — the
+/// kind this fork dispatches — runs as its own process against its own transcript, so its
+/// tokens land on that session's card, not on the one that launched it.</summary>
+/// <param name="ContextNow">The newest request's whole input footprint: what <c>/context</c>
+/// reports as the window's current occupancy. Every earlier request is history.</param>
+/// <param name="ContextWindow">The model's window, to make ContextNow a percentage.</param>
+public sealed record TokenUsage(
+    long Input, long CacheRead, long CacheWrite, long Output,
+    long InputWeighted, long CacheReadWeighted, long CacheWriteWeighted, long OutputWeighted,
+    long ContextNow, long ContextWindow, int Requests)
+{
+    /// <summary>Everything the API counted, unweighted — the impressive, misleading one.</summary>
+    public long Raw => Input + CacheRead + CacheWrite + Output;
+
+    /// <summary>The number to show: input-equivalent tokens, cache discount applied.</summary>
+    public long Weighted => InputWeighted + CacheReadWeighted + CacheWriteWeighted + OutputWeighted;
+}
 
 /// <summary>Background agents that were running when their session's process exited.</summary>
 /// <param name="Count">How many were reported in the one notification.</param>
@@ -88,6 +124,7 @@ public static class TranscriptReader
             var prompts = new List<string>();
             var commands = new List<string>();
             var tail = new Queue<string>(TailLines);
+            var tokens = new UsageTally();
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
             while (reader.ReadLine() is { } line)
@@ -95,6 +132,10 @@ public static class TranscriptReader
                 if (line.Length == 0) continue;
                 if (tail.Count == TailLines) tail.Dequeue();
                 tail.Enqueue(line);
+                // Its own check rather than a branch of the chain below: an assistant line can
+                // also contain one of those markers inside its own text, and a request missed
+                // that way would silently under-report the total.
+                if (line.Contains(UsageMarker)) tokens.Add(line);
                 if (line.Contains("\"custom-title\""))
                 {
                     // /rename. An empty value (rename cleared) falls back to the ai-title.
@@ -162,12 +203,104 @@ public static class TranscriptReader
                 if (Shorten(wrappedFirst) is { } w && !candidates.Contains(w)) candidates.Add(w);
             }
 
-            return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates, lost);
+            return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates, lost,
+                                      tokens.Result());
         }
         catch
         {
             return new TranscriptInfo(null, null);
         }
+    }
+
+    /// <summary>Cheap pre-filter for an assistant turn's token counts, same idea as
+    /// StoppedMarker. On the largest transcript here (33.8 MB) only 160 lines get past it, so
+    /// the tally costs about 50 ms on a file the scanner was already reading end to end.</summary>
+    private const string UsageMarker = "\"usage\"";
+
+    /// <summary>Running token totals for one transcript. Weights are applied per request, at
+    /// the ratios of the model that served it — see <see cref="TokenUsage"/>.</summary>
+    private sealed class UsageTally
+    {
+        /// <summary>Price ratios against one base input token of the SAME model, in per-mille
+        /// so the tally stays integer arithmetic.</summary>
+        private const long ScaleOne = 1000;
+        private const long WeightCacheRead = 100;       // 0.1x
+        private const long WeightCacheReadFable = 25;   // 0.025x — Fable/Mythos 5.1 only
+        private const long WeightWrite5m = 1250;        // 1.25x
+        private const long WeightWrite1h = 2000;        // 2x
+        private const long WeightOutput = 5000;         // 5x, on every current model
+
+        /// <summary>One API request is written as SEVERAL transcript lines — one per content
+        /// block (thinking, text, tool_use) — each repeating the same usage object verbatim.
+        /// Without deduping on the request id a turn that thinks and calls a tool counts three
+        /// times: measured 2026-09-08, 50 usage lines for 26 actual requests.</summary>
+        private readonly HashSet<string> _seen = new();
+
+        private long _in, _read, _write, _out;
+        private long _inW, _readW, _writeW, _outW;
+        private long _ctxNow, _ctxWindow;
+
+        public void Add(string line)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var type) || type.GetString() != "assistant") return;
+                if (!root.TryGetProperty("message", out var msg)) return;
+                if (!msg.TryGetProperty("usage", out var usage)) return;
+
+                string id = root.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? "" : "";
+                if (id.Length == 0 && msg.TryGetProperty("id", out var mid)) id = mid.GetString() ?? "";
+                if (id.Length == 0 || !_seen.Add(id)) return;
+
+                string model = msg.TryGetProperty("model", out var m) ? m.GetString() ?? "" : "";
+                long input = Num(usage, "input_tokens");
+                long read = Num(usage, "cache_read_input_tokens");
+                long output = Num(usage, "output_tokens");
+
+                long write5m = 0, write1h = 0;
+                if (usage.TryGetProperty("cache_creation", out var split) &&
+                    split.ValueKind == JsonValueKind.Object)
+                {
+                    write5m = Num(split, "ephemeral_5m_input_tokens");
+                    write1h = Num(split, "ephemeral_1h_input_tokens");
+                }
+                // No TTL split (older entries, or a shape that only carries the total): charge
+                // the whole write at the 5-minute rate, which is the API's own default.
+                if (write5m + write1h == 0) write5m = Num(usage, "cache_creation_input_tokens");
+
+                _in += input;
+                _read += read;
+                _write += write5m + write1h;
+                _out += output;
+
+                long readWeight = IsFableFamily(model) ? WeightCacheReadFable : WeightCacheRead;
+                _inW += input;
+                _readW += read * readWeight / ScaleOne;
+                _writeW += (write5m * WeightWrite5m + write1h * WeightWrite1h) / ScaleOne;
+                _outW += output * WeightOutput / ScaleOne;
+
+                // Overwritten every request on purpose: what the window holds NOW is the last
+                // one's input footprint, which is the number /context reports.
+                _ctxNow = input + read + write5m + write1h;
+                _ctxWindow = model.Contains("haiku", StringComparison.OrdinalIgnoreCase)
+                    ? 200_000 : 1_000_000;
+            }
+            catch { }
+        }
+
+        public TokenUsage? Result() => _seen.Count == 0
+            ? null
+            : new TokenUsage(_in, _read, _write, _out, _inW, _readW, _writeW, _outW,
+                             _ctxNow, _ctxWindow, _seen.Count);
+
+        private static bool IsFableFamily(string model) =>
+            model.Contains("fable", StringComparison.OrdinalIgnoreCase) ||
+            model.Contains("mythos", StringComparison.OrdinalIgnoreCase);
+
+        private static long Num(JsonElement obj, string name) =>
+            obj.TryGetProperty(name, out var v) && v.TryGetInt64(out long n) ? n : 0;
     }
 
     /// <summary>The one string that identifies a lost-agent notification. Checked against the

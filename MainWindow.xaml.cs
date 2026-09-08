@@ -860,6 +860,11 @@ public partial class MainWindow : Window
                         session.AutoTitle = tInfo.AutoTitle;
                         changed = true;
                     }
+                    if (tInfo.Tokens is { } spend && session.Tokens != spend)
+                    {
+                        session.Tokens = spend;
+                        changed = true;
+                    }
                     if (tInfo.LabelCandidates is { } cands &&
                         !cands.SequenceEqual(session.LabelCandidates))
                     {
@@ -1095,6 +1100,9 @@ public partial class MainWindow : Window
                         TranscriptPath = h.Path,
                         TabTitle = h.Info.TabTitle,
                         AutoTitle = h.Info.AutoTitle,
+                        // Taken here or never: TranscriptScannedAt below marks the file read,
+                        // so the mtime-gated rescan will skip a closed session for good.
+                        Tokens = h.Info.Tokens,
                         TranscriptScannedAt = File.GetLastWriteTimeUtc(h.Path),
                         Acknowledged = true,
                     });
