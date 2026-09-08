@@ -227,6 +227,17 @@ lifecycle is broken; the log is what shows the actual ordering of hook arrival v
 scan. The thresholds, the false-alarm measurements behind them and the
 `PermissionDialogScanMark` bound are documented in [`hooks/README.md`](hooks/README.md).
 
+**A `done` card with live waves does not blink** (this fork, v0.9.78). A session that fires a
+headless wave really does end its turn, so it goes `done` and blinks purple, which on this deck
+means "your turn" — the one thing it is not. Since 0.9.78 `BlinkActive` returns false for `done`
+while `DispatchedRuns > 0`; the colour is untouched, because `done` is true, and `waiting` and
+`error` still blink with waves out. Waves also left the `🤖` chip for a `🌊` of their own: the two
+counts used to be summed, so the card could not say which kind of work was out, and that is the
+part that decides whether he has to walk over to the window. The count itself comes from the
+walk in `RefreshDispatchedRuns`, so **a deck that was not running when the wave started shows
+nothing** — which is how the whole thing was noticed (09-09-2026: the deck had died at 21:16 and
+four waves ran without it).
+
 **`he` is the exception to both** (this fork, v0.9.6). No hook produces it and no scan
 clears it: it is set explicitly with `session status --state he` when a session has been
 closed out for good, and `SetSessionStatus` refuses to let a later `done` or `idle`
@@ -287,7 +298,7 @@ bound by. If he wants one changed, change it.
 
 | # | Decision |
 |---|---|
-| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. **Changed in this fork (v0.9.6):** `done` moved to purple and green went to a new terminal status, `he` — see below. **v0.9.61:** a second terminal status, `replaced` = steady white, for a session killed after handing off to a successor. |
+| 11 | **Status scheme.** `working` = steady blue (orange is reserved exclusively for `waiting`), `waiting` = blinking orange, `done` = blinking green → steady on acknowledge, `error` = blinking red → steady, `idle` = grey. The status→colour/blink map lives in config (`StatusStyles`), so it changes without touching hooks or code. **Changed in this fork (v0.9.6):** `done` moved to purple and green went to a new terminal status, `he` — see below. **v0.9.61:** a second terminal status, `replaced` = steady white, for a session killed after handing off to a successor. **v0.9.78:** `done` keeps its purple but drops the blink while the session has live dispatched waves. |
 | 12 | **A session that closes** disappears from the normal view and stays available in the card's expanded view (▼) with a resume option. Retention: the last ~20 closed sessions per workspace (`ClosedSessionRetention`). |
 | 13 | **VSCode only in the UI.** The engine underneath stays generic (any top-level window can be tracked, pinned and driven), but the UI and the flows are filtered to VSCode. Terminal support: maybe some day, not now. |
 | 15 | **The app is a control deck for Claude Code sessions**, not a generic window grid. Tile data from the pre-cards era is still round-tripped in config as a legacy field so nothing is lost, but it is never displayed. |
