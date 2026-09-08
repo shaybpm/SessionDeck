@@ -32,8 +32,14 @@ public partial class WorkspaceCardView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
-        Loaded += (_, _) => { LayoutUpdated += OnLayoutUpdated; RefreshThumbnail(); SyncExpandGlyph(); };
-        Unloaded += (_, _) => { LayoutUpdated -= OnLayoutUpdated; UnregisterThumbnail(); _scroll = null; };
+        Loaded += (_, _) => { LayoutUpdated += OnLayoutUpdated; Subscribe(Vm); RefreshThumbnail(); SyncExpandGlyph(); };
+        // Unsubscribing here is what keeps a discarded card collectable, and it is not
+        // housekeeping - it was a 200 MB/minute leak (08-09-2026). The view model outlives the
+        // view: RebuildCards clears the bound collection on every sort, WPF throws the container
+        // away WITHOUT resetting its DataContext, and a view still on the surviving view model's
+        // PropertyChanged list is rooted by it - the whole visual tree, and its DWM thumbnail
+        // registration with it. Some 300 cards were re-created and kept on every sort.
+        Unloaded += (_, _) => { LayoutUpdated -= OnLayoutUpdated; Subscribe(null); UnregisterThumbnail(); _scroll = null; };
         // Collapsing the card (search filter / hide) doesn't unload it — without this the
         // DWM thumbnail keeps compositing at its old rect over the deck (bug 2026-07-19).
         IsVisibleChanged += (_, _) => RefreshThumbnail();
@@ -41,11 +47,19 @@ public partial class WorkspaceCardView : UserControl
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_vm != null) _vm.PropertyChanged -= OnVmChanged;
-        _vm = Vm;
-        if (_vm != null) _vm.PropertyChanged += OnVmChanged;
+        Subscribe(Vm);
         RefreshThumbnail();
         SyncExpandGlyph();
+    }
+
+    /// <summary>Point this view's one subscription at <paramref name="target"/> (null to detach).
+    /// Idempotent, so the Loaded handler can re-attach after an unload without doubling up.</summary>
+    private void Subscribe(WorkspaceViewModel? target)
+    {
+        if (ReferenceEquals(_vm, target)) return;
+        if (_vm != null) _vm.PropertyChanged -= OnVmChanged;
+        _vm = target;
+        if (_vm != null) _vm.PropertyChanged += OnVmChanged;
     }
 
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
