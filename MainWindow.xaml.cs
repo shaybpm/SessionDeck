@@ -175,6 +175,11 @@ public partial class MainWindow : Window
         // window's own colour. Groups seeded earlier carry no colour and would draw grey.
         if (config.SchemaVersion < 7 && AppConfig.FillMissingGroupColors(_sessionGroups) is > 0 and var coloured)
             LogService.Info("config", $"schema<7: filled the colour on {coloured} session group(s)");
+        // Schema 8: now that each group has its own CARD, its name is the card's header — so it
+        // says which Claude account that instance spends, which is the thing that actually
+        // differs between the three windows.
+        if (config.SchemaVersion < 8 && AppConfig.NameGroupsByAccount(_sessionGroups) is > 0 and var renamed)
+            LogService.Info("config", $"schema<8: named {renamed} session group(s) by their account");
         LoadCustomToggles();
 
         int usageRebuilt = 0;

@@ -370,9 +370,9 @@ public class AppConfig
         };
         return new List<SessionGroupConfig>
         {
-            G("purple", "🟪 DEV MGMT",   "",     "🟪", "launch-dev-mgmt-window.vbs",  "סגול", GroupColorFor("purple")),
-            G("green",  "🟩 DEV MGMT 2", "ctrl", "🟩", "launch-dev-mgmt2-window.vbs", "ירוק", GroupColorFor("green")),
-            G("orange", "🟧 DEV MGMT 3", "alt",  "🟧", "launch-dev-mgmt3-window.vbs", "כתום", GroupColorFor("orange")),
+            G("purple", "🟪 DEV MGMT · GMAIL",            "",     "🟪", "launch-dev-mgmt-window.vbs",  "סגול", GroupColorFor("purple")),
+            G("green",  "🟩 DEV MGMT 2 · shay@bpmbim",     "ctrl", "🟩", "launch-dev-mgmt2-window.vbs", "ירוק", GroupColorFor("green")),
+            G("orange", "🟧 DEV MGMT 3 · Shay@bpm.org.il", "alt",  "🟧", "launch-dev-mgmt3-window.vbs", "כתום", GroupColorFor("orange")),
         };
     }
 
@@ -422,11 +422,41 @@ public class AppConfig
         }
         return filled;
     }
-    public int SchemaVersion { get; set; } = 7;   // 3: `done` moved green→purple, `he` took green
+    /// <summary>Schema 8: each group's name says which Claude ACCOUNT that instance spends
+    /// (Shay, 08-09-2026). The three windows are told apart on screen by colour, but the thing
+    /// that actually differs between them is the wallet — <c>CLAUDE_SECURESTORAGE_CONFIG_DIR</c>
+    /// binds each instance to one account — and since the split gave every group its own card,
+    /// the card header is where that belongs.
+    ///
+    /// Only a group still carrying its exact schema-5 name is renamed, so a name edited by hand
+    /// is never overwritten. Same rule as FillMissingLaunchers, and for the same reason: the
+    /// seeded value is a default, not something the deck owns forever.</summary>
+    public static int NameGroupsByAccount(List<SessionGroupConfig> groups)
+    {
+        var seededNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["purple"] = "🟪 DEV MGMT",
+            ["green"]  = "🟩 DEV MGMT 2",
+            ["orange"] = "🟧 DEV MGMT 3",
+        };
+        int renamed = 0;
+        foreach (var seeded in DefaultSessionGroups())
+        {
+            var g = groups.FirstOrDefault(x => string.Equals(x.Id, seeded.Id, StringComparison.OrdinalIgnoreCase));
+            if (g == null) continue;
+            if (!seededNames.TryGetValue(g.Id, out var was) || g.Name != was) continue;
+            g.Name = seeded.Name;
+            renamed++;
+        }
+        return renamed;
+    }
+
+    public int SchemaVersion { get; set; } = 8;   // 3: `done` moved green→purple, `he` took green
                                                   // 4: usage stamps rebuilt — machine activity stopped counting as use
                                                   // 5: SessionGroups seeded with the three .claude management instances
                                                   // 6: a group launches by its own script, not by a command line the deck builds
                                                   // 7: session groups carry the colour their chip is drawn in
+                                                  // 8: a group's name says which Claude account its instance spends
     public int NextTileId { get; set; } = 1;
     public List<TileConfig> Tiles { get; set; } = new();      // legacy, round-tripped only
     public int NextWorkspaceId { get; set; } = 1;
