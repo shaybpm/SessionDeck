@@ -71,6 +71,9 @@
                                 <MenuItem x:Name="HeadlessSessionsMenuItem" Header="Show headless sessions"
                                           IsCheckable="True" Click="HeadlessSessionsMenuItem_Click"
                                           ToolTip="Sessions nobody opened by hand: scheduled tasks and runners that launch `claude --print`.&#10;They fire exactly the same hooks as a real session, so without this every timer on the machine earns a card.&#10;Off by default. A card left with none of its own sessions drops off the deck, and a search still finds them."/>
+                                <MenuItem x:Name="WindowPreviewsMenuItem" Header="Window preview on cards"
+                                          IsCheckable="True" Click="WindowPreviewsMenuItem_Click"
+                                          ToolTip="The live picture of the bound VSCode window on each card, 170px tall.&#10;Off by default: an inactive tab renders nothing anyway, so it mostly shows whichever file that window last had in front.&#10;Off, a card with no window still says so."/>
                                 <Separator/>
                                 <MenuItem x:Name="TasksStripMenuItem" Header="Tasks strip on the deck"
                                           IsCheckable="True" Click="TasksStripMenuItem_Click"

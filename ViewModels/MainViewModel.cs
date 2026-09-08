@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using SessionDeck.Models;
@@ -109,6 +109,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _showTasksStrip;
         set { if (_showTasksStrip != value) { _showTasksStrip = value; Raise(); } }
+    }
+
+    private bool _showWindowPreviews;
+    /// <summary>⚙ menu: the live window preview band on every workspace card. Bound, so the
+    /// band appears and disappears without a restart.</summary>
+    public bool ShowWindowPreviews
+    {
+        get => _showWindowPreviews;
+        set { if (_showWindowPreviews != value) { _showWindowPreviews = value; Raise(); } }
     }
 
     public WorkspaceViewModel? FindById(int id)

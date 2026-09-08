@@ -153,6 +153,7 @@ public partial class MainWindow : Window
         Vm.AlwaysOnTop = config.AlwaysOnTop;
         Vm.WindowsNotifications = config.WindowsNotifications;
         Vm.ShowTasksStrip = config.ShowTasksStrip;
+        Vm.ShowWindowPreviews = config.ShowWindowPreviews;
         LogService.DebugEnabled = config.DebugLogging;
         Topmost = config.AlwaysOnTop;
 
@@ -383,6 +384,7 @@ public partial class MainWindow : Window
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
             ShowTasksStrip = Vm.ShowTasksStrip,
+            ShowWindowPreviews = Vm.ShowWindowPreviews,
             DebugLogging = LogService.DebugEnabled,
             TasksFilePath = Vm.TasksFilePath,
             CustomToggles = _customToggleConfigs,
@@ -3348,6 +3350,7 @@ public partial class MainWindow : Window
         MaximizeSessionMenuItem.IsChecked = Vm.OpenSessionMaximized;
         NotificationsMenuItem.IsChecked = Vm.WindowsNotifications;
         TasksStripMenuItem.IsChecked = Vm.ShowTasksStrip;
+        WindowPreviewsMenuItem.IsChecked = Vm.ShowWindowPreviews;
         HeadlessSessionsMenuItem.IsChecked = Vm.ShowHeadless;
         ShowHiddenToggle.IsChecked = Vm.ShowHidden;
         ActiveOnlyToggle.IsChecked = Vm.ActiveOnly;
@@ -3570,6 +3573,13 @@ public partial class MainWindow : Window
     private void TasksStripMenuItem_Click(object sender, RoutedEventArgs e)
     {
         Vm.ShowTasksStrip = TasksStripMenuItem.IsChecked;
+        QueueSave();
+    }
+
+    private void WindowPreviewsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Vm.ShowWindowPreviews = WindowPreviewsMenuItem.IsChecked;
+        SetStatus(Vm.ShowWindowPreviews ? "Window previews on" : "Window previews off");
         QueueSave();
     }
 
