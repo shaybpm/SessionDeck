@@ -24,6 +24,12 @@
                 <DataTrigger Binding="{Binding IsGroupCard}" Value="True">
                     <Setter Property="VerticalAlignment" Value="Top"/>
                 </DataTrigger>
+                <!-- Same reason with the preview band switched off (⚙ menu): nothing is left
+                     to absorb the row's height, so a stretched card is empty space below its
+                     sessions. -->
+                <DataTrigger Binding="{Binding DataContext.ShowWindowPreviews, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                    <Setter Property="VerticalAlignment" Value="Top"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </UserControl.Style>
@@ -367,10 +373,27 @@
                  sets a custom window.title per instance, so BuildTitlePattern's
                  "<name> - Visual Studio Code" matches none of them). Three copies of the
                  "no window" placeholder would cost 510px to say nothing. -->
-            <Grid Height="170">
+            <Grid>
                 <Grid.Style>
                     <Style TargetType="Grid">
+                        <Setter Property="Height" Value="170"/>
                         <Style.Triggers>
+                            <!-- Previews off: the band goes entirely, 170px per card. -->
+                            <DataTrigger Binding="{Binding DataContext.ShowWindowPreviews, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Setter Property="Height" Value="0"/>
+                            </DataTrigger>
+                            <!-- ...except on a card with no window, where the hint below is the
+                                 only thing that says so. Auto = the two lines and nothing more. -->
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding DataContext.ShowWindowPreviews, RelativeSource={RelativeSource AncestorType=Window}}" Value="False"/>
+                                    <Condition Binding="{Binding State}" Value="Disconnected"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Setter Property="Height" Value="Auto"/>
+                            </MultiDataTrigger>
+                            <!-- Last, so a group card is collapsed either way. -->
                             <DataTrigger Binding="{Binding IsGroupCard}" Value="True">
                                 <Setter Property="Visibility" Value="Collapsed"/>
                                 <Setter Property="Height" Value="0"/>
@@ -378,7 +401,18 @@
                         </Style.Triggers>
                     </Style>
                 </Grid.Style>
-                <Border x:Name="ThumbArea" Background="#FF0D0D0D" Margin="8,6,8,2" CornerRadius="4"/>
+                <Border x:Name="ThumbArea" Background="#FF0D0D0D" Margin="8,6,8,2" CornerRadius="4">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <!-- No preview to host: the dark plate would just box the hint. -->
+                                <DataTrigger Binding="{Binding DataContext.ShowWindowPreviews, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel.Style>
                         <Style TargetType="StackPanel">

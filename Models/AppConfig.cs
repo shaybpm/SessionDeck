@@ -493,6 +493,13 @@ public class AppConfig
     /// shows whichever level the page was last left on, which is rarely the one you want, and
     /// the toolbar's toolbar button opens the page anyway. The ⚙ menu brings it back.</summary>
     public bool ShowTasksStrip { get; set; }
+    /// <summary>The live DWM preview of the bound VSCode window on every workspace card.
+    /// Off by default in this fork (Shay, 08-09-2026: he does not read it, and it costs 170px
+    /// on every card, which is the deck's scarcest resource). Off, the band collapses to
+    /// nothing on a connected card and to the two-line "no window" hint on a disconnected one,
+    /// and the thumbnail is unregistered rather than merely hidden. The ⚙ menu brings it
+    /// back.</summary>
+    public bool ShowWindowPreviews { get; set; }
     public List<CustomToggleConfig> CustomToggles { get; set; } = new();
     /// <summary>The VSCode instances a new session can be aimed at by modifier
     /// (<see cref="SessionGroupConfig"/>). Empty = the deck routes as it always did, to the

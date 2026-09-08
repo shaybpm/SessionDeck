@@ -63,7 +63,10 @@ public partial class WorkspaceCardView : UserControl
     private void RefreshThumbnail()
     {
         var vm = Vm;
-        if (!IsLoaded || !IsVisible || vm == null || vm.State != BindState.Connected ||
+        // ThumbArea hidden = the ⚙ "Window preview on cards" switch is off. DWM composites
+        // over the whole window surface and ignores WPF visibility, so the thumbnail has to be
+        // unregistered, not merely left behind a collapsed border.
+        if (!IsLoaded || !IsVisible || !ThumbArea.IsVisible || vm == null || vm.State != BindState.Connected ||
             vm.Hwnd == IntPtr.Zero || !NativeMethods.IsWindow(vm.Hwnd))
         {
             UnregisterThumbnail();
