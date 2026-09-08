@@ -2191,8 +2191,11 @@ public partial class MainWindow : Window
         // on pybpm-server, 10-08-2026), and a card already filtered out did not come back when
         // a session opened on it. ApplyDeckVisibility ends in RefreshBlinkAndSummary, so it
         // replaces the call that was here instead of adding a second pass.
-        ApplyDeckVisibility();
+        // Before ApplyDeckVisibility, not after: that pass ends in RefreshBlinkAndSummary,
+        // and since 0.9.78 the wave count decides whether a `done` card blinks. Recounting
+        // after it left the summary dots one event stale.
         RefreshDispatchedRuns();
+        ApplyDeckVisibility();
         QueueSave();
     }
 

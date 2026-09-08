@@ -392,6 +392,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             var lines = new List<string>();
             if (_detail.Length > 0) lines.Add(_detail);
             if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
+            if (_dispatchedRuns > 0) lines.Add(DispatchedRunsTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Headline only — the ⛁ chip's own tooltip carries the breakdown.
             if (_tokens is { Requests: > 0 } tk)
@@ -478,39 +479,45 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_dispatchedRuns == value) return;
             _dispatchedRuns = value;
             Raise();
-            Raise(nameof(HasBackgroundAgents));
-            Raise(nameof(BackgroundAgentsText));
-            Raise(nameof(BackgroundAgentsTip));
+            Raise(nameof(HasDispatchedRuns));
+            Raise(nameof(DispatchedRunsText));
+            Raise(nameof(DispatchedRunsTip));
             Raise(nameof(TooltipText));
+            // The count is what silences the blink on a `done` card (see BlinkActive), so a
+            // change to it has to repaint the border. The engine's own tick would catch it
+            // within 100ms; this makes it the same frame.
+            Raise(nameof(BorderBrush));
         }
     }
 
-    /// <summary>Everything this session has out in the world: its own subagents plus the
-    /// headless runs it launched. One chip for both, because from the deck's side they are the
-    /// same question — is anything of mine still running.</summary>
-    private int OutstandingWork => _backgroundAgents + _dispatchedRuns;
-
-    public bool HasBackgroundAgents => OutstandingWork > 0;
+    /// <summary>Subagents and dispatched runs get a chip each, and that is a change from the
+    /// one shared 🤖 they used to share (Shay, 09-09-2026). They answer the same question from
+    /// the deck's side — is anything of mine still running — but not the same question from
+    /// his: a subagent comes back INTO the session, a wave reports through the agenda and
+    /// leaves the session free to be waiting on him. Reading which of the two is out decided
+    /// whether he needs to walk over to that window, and a merged count made him open the
+    /// tooltip every time.</summary>
+    public bool HasBackgroundAgents => _backgroundAgents > 0;
 
     /// <summary>The chip on the card: the icon alone for one, icon + count for more.</summary>
-    public string BackgroundAgentsText => OutstandingWork > 1 ? $"🤖{OutstandingWork}" : "🤖";
+    public string BackgroundAgentsText => _backgroundAgents > 1 ? $"🤖{_backgroundAgents}" : "🤖";
 
-    public string BackgroundAgentsTip
-    {
-        get
-        {
-            var parts = new List<string>();
-            if (_backgroundAgents == 1)
-                parts.Add("1 subagent is still running — the session resumes on its own when it reports back");
-            else if (_backgroundAgents > 1)
-                parts.Add($"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back");
-            if (_dispatchedRuns == 1)
-                parts.Add("1 headless run it launched is still going — it reports back through the agenda, not into the session");
-            else if (_dispatchedRuns > 1)
-                parts.Add($"{_dispatchedRuns} headless runs it launched are still going — they report back through the agenda, not into the session");
-            return string.Join(Environment.NewLine, parts);
-        }
-    }
+    public string BackgroundAgentsTip =>
+        _backgroundAgents == 1
+            ? "1 subagent is still running — the session resumes on its own when it reports back"
+            : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
+
+    public bool HasDispatchedRuns => _dispatchedRuns > 0;
+
+    /// <summary>The wave chip. 🌊 rather than a second 🤖 because these are not agents of this
+    /// session at all: they are sessions of their own, and "גל" is what they are called on this
+    /// machine.</summary>
+    public string DispatchedRunsText => _dispatchedRuns > 1 ? $"🌊{_dispatchedRuns}" : "🌊";
+
+    public string DispatchedRunsTip =>
+        _dispatchedRuns == 1
+            ? "1 headless run it launched is still going — it reports back through the agenda, not into the session, so this card is not blinking for you"
+            : $"{_dispatchedRuns} headless runs it launched are still going — they report back through the agenda, not into the session, so this card is not blinking for you";
 
     private int _lostAgents;
     private string _lostAgentsDetail = "";
@@ -690,6 +697,15 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         get
         {
             if (_closed) return false;
+            // A session that dispatched headless runs ends its turn for real, so it goes
+            // `done` and blinks like a session waiting for an answer — the one thing it is
+            // not (Shay, 09-09-2026: the hourly-cost topic session looked like it wanted him
+            // while four waves were building). The colour still says done, because that is
+            // true; only the blink is dropped, because the blink is the part that means
+            // "look at me". Deliberately `done` alone: `waiting` and `error` need him
+            // whether or not a wave of his is out, and silencing those would trade a false
+            // alarm for a missed one.
+            if (_status == SessionStatus.Done && _dispatchedRuns > 0) return false;
             var style = ResolveStyle(_status);
             if (style.AltColor == null) return false;
             return !style.UntilAcknowledge || !_acknowledged;
