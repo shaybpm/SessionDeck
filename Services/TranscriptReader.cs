@@ -27,13 +27,20 @@ namespace SessionDeck.Services;
 /// BEFORE the notification is written and carries nothing about it, UserPromptSubmit reports
 /// the user's own prompt rather than the notification, and by then Stop's background_tasks is
 /// empty. The transcript is the only witness.</param>
+/// <param name="ForegroundAgents">Agent calls this session has out that are still running —
+/// the ones dispatched WITHOUT run_in_background, which no hook can report. A background
+/// Agent call answers in milliseconds with async_launched, so it is never pending here; a
+/// foreground one holds its tool_use open for as long as the agent works, and that is exactly
+/// the signal. The subagent's own turns are sidechain lines and are skipped, so its internal
+/// tool calls never inflate the count.</param>
 public sealed record TranscriptInfo(
     string? TabTitle,
     string? AutoTitle,
     PendingCall? Pending = null,
     IReadOnlyList<string>? LabelCandidates = null,
     LostAgents? Lost = null,
-    TokenUsage? Tokens = null);
+    TokenUsage? Tokens = null,
+    int ForegroundAgents = 0);
 
 /// <summary>What a session has spent, tallied from the <c>usage</c> block of every assistant
 /// turn in its transcript.
@@ -203,8 +210,9 @@ public static class TranscriptReader
                 if (Shorten(wrappedFirst) is { } w && !candidates.Contains(w)) candidates.Add(w);
             }
 
-            return new TranscriptInfo(tabTitle, autoTitle, FindPendingCall(tail), candidates, lost,
-                                      tokens.Result());
+            var (pending, foreground) = FindPendingCall(tail);
+            return new TranscriptInfo(tabTitle, autoTitle, pending, candidates, lost,
+                                      tokens.Result(), foreground);
         }
         catch
         {
@@ -416,8 +424,12 @@ public static class TranscriptReader
     /// are ignored — only the main conversation can block the user. A later human prompt
     /// clears earlier pending calls: "Fork conversation" copies history but drops some
     /// tool_result lines (parallel-call siblings off the parentUuid chain, T-0313), so an
-    /// orphaned tool_use mid-history would otherwise read as pending forever.</summary>
-    private static PendingCall? FindPendingCall(IEnumerable<string> tail)
+    /// orphaned tool_use mid-history would otherwise read as pending forever.
+    ///
+    /// The same walk answers a second question: how many of the still-open calls are Agent
+    /// calls, which is the only witness there is to a FOREGROUND subagent (see
+    /// TranscriptInfo.ForegroundAgents).</summary>
+    private static (PendingCall? Call, int ForegroundAgents) FindPendingCall(IEnumerable<string> tail)
     {
         var pending = new Dictionary<string, PendingCall>();
         var order = new List<string>();
@@ -486,10 +498,14 @@ public static class TranscriptReader
             }
             catch { }
         }
+        int agents = 0;
+        foreach (var p in pending.Values)
+            if (p.ToolName == "Agent") agents++;
+
         // Prefer a definitive question over a merely-unfinished tool, then most recent.
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call) && call.IsAsk)
-                return call;
+                return (call, agents);
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call))
             {
@@ -497,9 +513,9 @@ public static class TranscriptReader
                 // likely waiting on its own batch, not on the user — see HasOlderPending.
                 bool older = false;
                 for (int j = 0; j < i && !older; j++) older = pending.ContainsKey(order[j]);
-                return call with { HasOlderPending = older };
+                return (call with { HasOlderPending = older }, agents);
             }
-        return null;
+        return (null, agents);
     }
 
     /// <summary>Card text for a pending question: the question itself when available.</summary>

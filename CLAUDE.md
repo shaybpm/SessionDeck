@@ -145,6 +145,16 @@ between them:
    `<status>stopped</status>` task-notification — agents that died with the session's previous
    process, which no hook reports either — and marks the card `error` with a ⚠ chip. Details
    and the measurements: [`hooks/README.md`](hooks/README.md).
+4. **A pending `Agent` tool_use in the transcript** (this fork, v0.9.79) — the only witness to a
+   FOREGROUND subagent. Nothing in 1-3 can see one: `background_tasks` lists background tasks
+   only, and the PostToolUse that counts a launch fires for a foreground agent when it has
+   already finished, so counting it there would add an agent that no longer exists. A foreground
+   call instead holds its tool_use open for exactly as long as the agent works, and a background
+   one never appears (it answers in ~3ms), so "pending Agent calls" is precisely the foreground
+   count with no double-counting. Recomputed on every scan rather than tallied, so a killed agent
+   or a deck restart cannot leave it stuck. Found when a session announced four verification
+   agents in chat and its card showed a plain blue `working` with no chip for the eight minutes
+   they ran (Shay, 11-09-2026).
 
 **A `SessionStart` is not always a fresh start.** Clicking a card makes the deck send an open
 command, VSCode answers with `SessionStart source=resume`, and `StartSession` used to reset any
@@ -237,6 +247,12 @@ part that decides whether he has to walk over to the window. The count itself co
 walk in `RefreshDispatchedRuns`, so **a deck that was not running when the wave started shows
 nothing** — which is how the whole thing was noticed (09-09-2026: the deck had died at 21:16 and
 four waves ran without it).
+
+**The 🤖 chip counts foreground and background subagents together** (v0.9.79), unlike the 🌊 split
+above, because on the question the chip answers — are agents of this session out, will it come
+back on its own — they give the same answer. The card's own colour already separates them: blue
+means the turn is still open and the agents are foreground, purple means the turn ended and only
+background ones can still be out. The tooltip names the split when both are out.
 
 **`he` is the exception to both** (this fork, v0.9.6). No hook produces it and no scan
 clears it: it is set explicitly with `session status --state he` when a session has been

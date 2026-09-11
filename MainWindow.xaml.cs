@@ -887,6 +887,18 @@ public partial class MainWindow : Window
                         retitled.Add(ws);
                     }
                     session.PendingCall = tInfo.Pending;
+                    // The only place a foreground agent is visible at all. Assigned rather
+                    // than accumulated, and only from a scan that actually re-read the file,
+                    // so the count follows the transcript exactly: it appears on the scan
+                    // after the Agent call is written and empties on the scan after its
+                    // tool_result lands. Logged on change — a chip nobody can explain later
+                    // is what sent this whole investigation to the transcripts.
+                    if (session.ForegroundAgents != tInfo.ForegroundAgents)
+                    {
+                        LogService.Info("status", $"session={session.SessionId} " +
+                            $"foreground agents {session.ForegroundAgents}→{tInfo.ForegroundAgents} (transcript)");
+                        session.ForegroundAgents = tInfo.ForegroundAgents;
+                    }
                     if (ApplyLostAgents(session, tInfo.Lost)) changed = true;
                 }
                 // Evaluate right after a scan too, so a question goes orange at once
@@ -1703,6 +1715,7 @@ public partial class MainWindow : Window
                 // lost-agents mark is cleared too and re-earned from the transcript: the
                 // notification about them is written a few seconds AFTER this hook.
                 fs.BackgroundAgents = 0;
+                fs.ForegroundAgents = 0;
                 fs.ClearLostAgents();
             }
             fs.StartedAt = DateTime.Now;
