@@ -225,6 +225,8 @@ public partial class MainWindow : Window
                     AutoTitle = sc.AutoTitle,
                     TabTitle = sc.TabTitle,
                     BackgroundAgents = sc.BackgroundAgents,
+                    LiveTaskIds = sc.LiveTaskIds,
+                    MonitorTaskIds = sc.MonitorTaskIds,
                     // Which window it ran in. Restored before any connector is up, because a
                     // deck restarted after the instance died is exactly when it is asked.
                     GroupId = sc.GroupId,
@@ -249,8 +251,17 @@ public partial class MainWindow : Window
                 // it to idle here showed a card as idle while five agents were still running
                 // (Shay, 21-08-2026). If they really died with the previous process, the
                 // stopped-agent notification scan turns the card red instead.
+                // ...and a session with a FOREGROUND agent out is the same case wearing
+                // different clothes, which is why the check above was not enough. Its agent
+                // writes to a sidechain file, so the session's own transcript is just as quiet
+                // as a dead one's, and BackgroundAgents is 0 because no hook ever counted it
+                // (see SessionViewModel.ForegroundAgents). A card in exactly that state went
+                // grey on restart while four verification agents were running under it
+                // ("סשן נושא #8.0", 11-09-2026). The transcript is the only witness, so ask it
+                // - for these few candidates only, not for every restored session.
                 if (svm.Status == SessionStatus.Working && !svm.Closed && svm.BackgroundAgents == 0 &&
-                    !TranscriptActiveWithin(svm, RecentTranscriptActivity))
+                    !TranscriptActiveWithin(svm, RecentTranscriptActivity) &&
+                    !HasLiveForegroundAgent(svm))
                 {
                     svm.Status = SessionStatus.Idle;
                     svm.Detail = "";
@@ -303,6 +314,14 @@ public partial class MainWindow : Window
                 $"{config.Workspaces.Count} cards — headless and never-materialized sessions no " +
                 "longer count as use");
         RehomeMisfiledSessions();
+        // Every restored card at once, because nothing else will: the count is recomputed from
+        // the live session records, and until 0.9.82 the only caller was AfterSessionChange —
+        // so after a restart a card that had dispatched a wave went back to purple "your turn"
+        // and stayed there until SOME session, anywhere on the deck, happened to fire a hook.
+        // Measured 11-09-2026: a screenshot 15 seconds after an install showed "your turn", the
+        // next one a minute later showed "wave running". The runs it counts were restored from
+        // config a few lines above, so this is the first moment the answer exists.
+        RefreshDispatchedRuns();
         ApplyDeckVisibility();
         SortWorkspaces();
 
@@ -438,6 +457,8 @@ public partial class MainWindow : Window
                     AutoTitle = s.AutoTitle,
                     TabTitle = s.TabTitle,
                     BackgroundAgents = s.BackgroundAgents,
+                    LiveTaskIds = s.LiveTaskIds.ToList(),
+                    MonitorTaskIds = s.MonitorTaskIds.ToList(),
                     GroupId = s.GroupId,
                 });
             }
@@ -899,6 +920,17 @@ public partial class MainWindow : Window
                             $"foreground agents {session.ForegroundAgents}→{tInfo.ForegroundAgents} (transcript)");
                         session.ForegroundAgents = tInfo.ForegroundAgents;
                     }
+                    // The type half of the watch count. Assigned rather than accumulated, like
+                    // the line above, and safe to leave standing between scans: a session
+                    // waiting on a monitor writes nothing, so its transcript mtime does not
+                    // move and this scan does not run again — the ids stay as the turn that
+                    // armed them left them, which is exactly right. What expires the count is
+                    // the hook's side, on the next Stop.
+                    int watchesBefore = session.ActiveWatches;
+                    session.MonitorTaskIds = tInfo.MonitorTaskIds ?? Array.Empty<string>();
+                    if (session.ActiveWatches != watchesBefore)
+                        LogService.Info("status", $"session={session.SessionId} " +
+                            $"watches {watchesBefore}→{session.ActiveWatches} (transcript ∩ background_tasks)");
                     if (ApplyLostAgents(session, tInfo.Lost)) changed = true;
                 }
                 // Evaluate right after a scan too, so a question goes orange at once
@@ -1051,6 +1083,30 @@ public partial class MainWindow : Window
     /// <summary>How fresh a transcript write must be to count as "Claude is doing
     /// something right now". Generous: turns write every few seconds.</summary>
     private static readonly TimeSpan RecentTranscriptActivity = TimeSpan.FromMinutes(2);
+
+    /// <summary>How stale a transcript may be and still have a foreground agent believed to be
+    /// running under it. A deliberate ceiling, not a formality: a pending Agent call is a
+    /// tool_use with no result, and a session killed mid-agent leaves one behind forever - so
+    /// without a bound this rescue would pin a dead card on blue permanently, which is the
+    /// louder half of the bug it fixes. An hour is well past any agent measured here (the
+    /// longest observed was eight minutes) and well short of "yesterday".</summary>
+    private static readonly TimeSpan ForegroundAgentBelievable = TimeSpan.FromHours(1);
+
+    /// <summary>Does this session's transcript still hold an unanswered foreground Agent call,
+    /// recently enough to believe? Read at load only, and only for the handful of sessions
+    /// about to be demoted to idle - every other card gets its answer from the ordinary 10s
+    /// scan. Any failure reads as "no", so the demotion keeps its old behaviour.</summary>
+    private static bool HasLiveForegroundAgent(SessionViewModel session)
+    {
+        if (session.TranscriptPath is not { Length: > 0 } path) return false;
+        try
+        {
+            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(path) > ForegroundAgentBelievable)
+                return false;
+            return TranscriptReader.ReadInfo(path).ForegroundAgents > 0;
+        }
+        catch { return false; }
+    }
 
     /// <summary>A transcript write within the window is the only hook-independent signal
     /// of live activity — used before claiming a session is working (T-0313).</summary>
@@ -1648,7 +1704,7 @@ public partial class MainWindow : Window
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
                                   int? Agents = null, string? Entrypoint = null,
                                   bool PrintMode = false, string? Dispatcher = null,
-                                  string? Group = null)
+                                  string? Group = null, IReadOnlyList<string>? TaskIds = null)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1773,6 +1829,9 @@ public partial class MainWindow : Window
         if (info.Mode != null) session.PermissionMode = info.Mode;
         if (info.Reason != null) session.EndReason = info.Reason;
         if (info.Agents is int agents) session.BackgroundAgents = agents;
+        // Never counted as agents and never shown raw — only intersected with the Monitor ids
+        // the transcript knows about (SessionViewModel.ActiveWatches).
+        if (info.TaskIds is { } taskIds) session.LiveTaskIds = taskIds;
         if (info.Entrypoint != null) session.Entrypoint = info.Entrypoint;
         // One-way: proven once at SessionStart, and no later event can argue with it.
         if (info.PrintMode) session.PrintMode = true;

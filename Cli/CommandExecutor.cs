@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
-        "prompt", "page", "dispatcher", "group", "after",
+        "prompt", "page", "dispatcher", "group", "after", "tasks",
     };
 
     private readonly MainWindow _window;
@@ -554,6 +554,11 @@ public sealed class CommandExecutor
         Reason: a.Options.GetValueOrDefault("reason"),
         PermissionDialog: a.Flags.Contains("permission-dialog"),
         Agents: int.TryParse(a.Options.GetValueOrDefault("agents"), out int agents) ? agents : null,
+        // Sent on every Stop, empty string included, so a turn that ended with nothing
+        // running clears the previous turn's list instead of leaving it to age.
+        TaskIds: a.Options.TryGetValue("tasks", out var taskIds)
+            ? taskIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : null,
         Entrypoint: a.Options.GetValueOrDefault("entrypoint"),
         PrintMode: a.Flags.Contains("print-mode"),
         Dispatcher: a.Options.GetValueOrDefault("dispatcher"),

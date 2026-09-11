@@ -156,6 +156,17 @@ between them:
    agents in chat and its card showed a plain blue `working` with no chip for the eight minutes
    they ran (Shay, 11-09-2026).
 
+5. **A live Monitor, found by intersecting two sources** (this fork, v0.9.82) — the only witness
+   to a session that ended its turn waiting for a machine event. `background_tasks` reports an
+   armed Monitor and a backgrounded `sleep` identically (`type: "shell"`, `status: "running"`,
+   separated only by free text), so the hook cannot decide and deliberately does not: it forwards
+   the shell ids on `--tasks` and counts them as nothing. The transcript holds the other half —
+   a Monitor's `tool_result` announces its task id — and `ActiveWatches` is the intersection. An
+   id that cannot be attributed counts for nothing, so an unrecognised shell leaves the card
+   exactly as it was. Counting every running shell was the easy build and it trades one false
+   alarm for another: a session that leaves a dev server up and then genuinely finishes with a
+   question would never claim his turn again.
+
 **A `SessionStart` is not always a fresh start.** Clicking a card makes the deck send an open
 command, VSCode answers with `SessionStart source=resume`, and `StartSession` used to reset any
 known session to `idle` silently — so looking at a session destroyed the state you clicked to
@@ -248,6 +259,12 @@ wave of its own is running the card takes the wave chip's own colour and says `w
 `N waves running` instead. `WaitingOnWaves` is a presentation rule only — the status underneath
 stays `done`, and it is deliberately NOT a new `StatusStyles` entry, because a configurable colour
 for a derived state is how the two drift. `waiting` and `error` still blink with waves out.
+**v0.9.82 gave a live MONITOR the same treatment**, which was the measured heart of the complaint:
+session #2.0 landed its wave, the count fell to zero, the card went straight back to purple, and
+the session woke itself off its monitor four minutes later. `WaitingOnWatch` joins `WaitingOnWaves`
+under a shared `WaitingOnMachine` and the card says "watching". One colour over both cases on
+purpose — the chips (🌊 / 📡) carry which kind of work is out, but the colour answers the only
+question a wall of cards is scanned for, and that question has one answer.
 **After a deck restart the card says "your turn" until the first session event**, because
 `RefreshDispatchedRuns` recounts on session events only; with twenty live sessions that is seconds,
 but it is why a card can look wrong for a moment right after an install. Waves also left the `🤖` chip for a `🌊` of their own: the two

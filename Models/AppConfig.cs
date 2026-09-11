@@ -230,6 +230,17 @@ public class SessionConfig
     /// being over — without this a restart mid-run read the silence as death and dropped the
     /// card to idle while five agents were still working (Shay, 21-08-2026).</summary>
     public int BackgroundAgents { get; set; }
+    /// <summary>The two halves of the watch count, as they stood when the deck was last saved:
+    /// the background-task ids still running (from the Stop hook) and the ids the transcript
+    /// attributes to a Monitor call. Persisted for the same reason as BackgroundAgents above
+    /// and a sharper one - a session waiting on a monitor emits NOTHING until the monitor wakes
+    /// it, so there is no next hook event to refill the first half from. Without this the count
+    /// reset to zero on every restart and the card went back to blinking purple "your turn",
+    /// which is the exact fault this whole item was opened to remove, reappearing on every
+    /// install. Both halves self-correct: the next Stop overwrites the live ids (it is sent
+    /// even when empty) and the next transcript scan overwrites the monitor ids.</summary>
+    public List<string> LiveTaskIds { get; set; } = new();
+    public List<string> MonitorTaskIds { get; set; } = new();
     /// <summary>Which VSCode instance this session was last SEEN running in — the id of the
     /// <see cref="SessionGroupConfig"/> whose window held its tab. "" while unknown.
     ///

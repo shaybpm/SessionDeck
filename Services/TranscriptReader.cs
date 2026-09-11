@@ -33,6 +33,14 @@ namespace SessionDeck.Services;
 /// foreground one holds its tool_use open for as long as the agent works, and that is exactly
 /// the signal. The subagent's own turns are sidechain lines and are skipped, so its internal
 /// tool calls never inflate the count.</param>
+/// <param name="MonitorTaskIds">The background-task ids this session armed with the Monitor
+/// tool. NOT a liveness signal on its own — a Monitor answers immediately, so its tool_use is
+/// never pending and the transcript never says when the watch ended. It is the missing HALF of
+/// one: the Stop hook's <c>background_tasks</c> says which tasks are still running but reports
+/// a Monitor and a backgrounded shell identically (measured 11-09-2026: both type=shell,
+/// status=running), and this says which of those ids was a Monitor. Intersect the two and you
+/// have the watches that are actually live, which is the only form of the question the deck can
+/// answer honestly.</param>
 public sealed record TranscriptInfo(
     string? TabTitle,
     string? AutoTitle,
@@ -40,7 +48,8 @@ public sealed record TranscriptInfo(
     IReadOnlyList<string>? LabelCandidates = null,
     LostAgents? Lost = null,
     TokenUsage? Tokens = null,
-    int ForegroundAgents = 0);
+    int ForegroundAgents = 0,
+    IReadOnlyList<string>? MonitorTaskIds = null);
 
 /// <summary>What a session has spent, tallied from the <c>usage</c> block of every assistant
 /// turn in its transcript.
@@ -210,9 +219,9 @@ public static class TranscriptReader
                 if (Shorten(wrappedFirst) is { } w && !candidates.Contains(w)) candidates.Add(w);
             }
 
-            var (pending, foreground) = FindPendingCall(tail);
+            var (pending, foreground, monitors) = FindPendingCall(tail);
             return new TranscriptInfo(tabTitle, autoTitle, pending, candidates, lost,
-                                      tokens.Result(), foreground);
+                                      tokens.Result(), foreground, monitors);
         }
         catch
         {
@@ -428,11 +437,18 @@ public static class TranscriptReader
     ///
     /// The same walk answers a second question: how many of the still-open calls are Agent
     /// calls, which is the only witness there is to a FOREGROUND subagent (see
-    /// TranscriptInfo.ForegroundAgents).</summary>
-    private static (PendingCall? Call, int ForegroundAgents) FindPendingCall(IEnumerable<string> tail)
+    /// TranscriptInfo.ForegroundAgents) — and a third, the background-task ids armed by the
+    /// Monitor tool (see TranscriptInfo.MonitorTaskIds).</summary>
+    private static (PendingCall? Call, int ForegroundAgents, List<string> MonitorTasks)
+        FindPendingCall(IEnumerable<string> tail)
     {
         var pending = new Dictionary<string, PendingCall>();
         var order = new List<string>();
+        // tool_use_id → tool name, kept for the whole walk. `pending` cannot serve: a Monitor
+        // call is answered at once, so it is removed from `pending` by the very result that
+        // carries the task id we are after.
+        var toolNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        var monitorTasks = new List<string>();
         // Transcript lines are NOT strictly ordered: a tool_result line can precede its
         // own tool_use line (seen in the wild 2026-07-27 — same-second flush). Matching
         // must therefore be order-insensitive, or the call reads as pending forever and
@@ -470,6 +486,7 @@ public static class TranscriptReader
                             string? name = block.TryGetProperty("name", out var n) ? n.GetString() : null;
                             string? id = block.TryGetProperty("id", out var i) ? i.GetString() : null;
                             if (name == null || id == null || resolved.Contains(id)) continue;
+                            toolNames[id] = name;
                             bool isAsk = AskTools.Contains(name);
                             string detail = isAsk ? AskDetail(name, block) : $"Waiting for permission: {name}";
                             pending[id] = new PendingCall(name, detail, stamp, isAsk);
@@ -483,6 +500,10 @@ public static class TranscriptReader
                             {
                                 resolved.Add(rId);
                                 pending.Remove(rId);
+                                if (toolNames.GetValueOrDefault(rId) == "Monitor" &&
+                                    ReadMonitorTaskId(block) is { } taskId &&
+                                    !monitorTasks.Contains(taskId))
+                                    monitorTasks.Add(taskId);
                             }
                         }
                     }
@@ -505,7 +526,7 @@ public static class TranscriptReader
         // Prefer a definitive question over a merely-unfinished tool, then most recent.
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call) && call.IsAsk)
-                return (call, agents);
+                return (call, agents, monitorTasks);
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call))
             {
@@ -513,10 +534,37 @@ public static class TranscriptReader
                 // likely waiting on its own batch, not on the user — see HasOlderPending.
                 bool older = false;
                 for (int j = 0; j < i && !older; j++) older = pending.ContainsKey(order[j]);
-                return (call with { HasOlderPending = older }, agents);
+                return (call with { HasOlderPending = older }, agents, monitorTasks);
             }
-        return (null, agents);
+        return (null, agents, monitorTasks);
     }
+
+    /// <summary>The task id out of a Monitor tool_result: "Monitor started (task blosa44ck,
+    /// timeout 300000ms)". The id lives only in that sentence — the result carries no
+    /// structured field — so this reads prose, and is written to fail closed: no match means
+    /// no watch is counted, which is exactly the behaviour of every build before this one.
+    /// Only results whose own tool_use was a Monitor call reach here, so nothing a shell
+    /// command happens to print can be mistaken for one.</summary>
+    private static string? ReadMonitorTaskId(JsonElement block)
+    {
+        if (!block.TryGetProperty("content", out var content)) return null;
+        string? text = content.ValueKind switch
+        {
+            JsonValueKind.String => content.GetString(),
+            JsonValueKind.Array => content.EnumerateArray()
+                .Select(b => b.ValueKind == JsonValueKind.Object &&
+                             b.TryGetProperty("text", out var t) ? t.GetString() : null)
+                .FirstOrDefault(x => x is { Length: > 0 }),
+            _ => null,
+        };
+        if (text == null) return null;
+        var m = MonitorTaskPattern.Match(text);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private static readonly Regex MonitorTaskPattern =
+        new(@"Monitor started \(task ([A-Za-z0-9_-]+)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Card text for a pending question: the question itself when available.</summary>
     private static string AskDetail(string toolName, JsonElement block)
