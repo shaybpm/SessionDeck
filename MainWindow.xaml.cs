@@ -225,6 +225,8 @@ public partial class MainWindow : Window
                     AutoTitle = sc.AutoTitle,
                     TabTitle = sc.TabTitle,
                     BackgroundAgents = sc.BackgroundAgents,
+                    LiveTaskIds = sc.LiveTaskIds,
+                    MonitorTaskIds = sc.MonitorTaskIds,
                     // Which window it ran in. Restored before any connector is up, because a
                     // deck restarted after the instance died is exactly when it is asked.
                     GroupId = sc.GroupId,
@@ -455,6 +457,8 @@ public partial class MainWindow : Window
                     AutoTitle = s.AutoTitle,
                     TabTitle = s.TabTitle,
                     BackgroundAgents = s.BackgroundAgents,
+                    LiveTaskIds = s.LiveTaskIds.ToList(),
+                    MonitorTaskIds = s.MonitorTaskIds.ToList(),
                     GroupId = s.GroupId,
                 });
             }

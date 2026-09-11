@@ -8,7 +8,7 @@
 | `UserPromptSubmit` | `session status --state working` | steady blue | the **prompt** itself (`--detail`, trimmed to 400 chars) |
 | `Notification` | `session status --state waiting` | blinking orange | the waiting message (`--detail` — e.g. "needs your permission to use Bash") |
 | `PermissionRequest` | `session status --state waiting --permission-dialog` | blinking orange | the tool and its argument (`--detail` — e.g. `Write: C:\Windows\Temp\x.txt`) |
-| `Stop` | `session status --state done` | blinking purple → steady once clicked | `--agents` — how many subagents the payload's `background_tasks` still lists as running (see below); a non-zero count lands on `working` instead |
+| `Stop` | `session status --state done` | blinking purple → steady once clicked | `--agents` — how many subagents the payload's `background_tasks` still lists as running (see below); a non-zero count lands on `working` instead. `--tasks` — the ids of the `shell` entries in that same list, forwarded raw and counted as nothing here (see below) |
 | `StopFailure` | `session status --state error` | red | the error message that killed the turn |
 | `PreToolUse` (AskUserQuestion / ExitPlanMode) | `session status --state waiting` | blinking orange | the question text / "Waiting for plan approval" — question forms are not permission requests, so they never raise `PermissionRequest` |
 | `PostToolUse` (same tools) | `session status --state working` | steady blue | the user answered — Claude is working again |
@@ -205,9 +205,22 @@ Three things learned the hard way, all worth keeping:
   not a matched pair. One background agent produced **four** Start/Stop pairs in a controlled
   run: it stops and resumes every time it waits on something of its own. A running tally
   would drift; `background_tasks` is a snapshot of the live registry and cannot.
-- **Only `subagent` counts.** The same list holds `type: "shell"` entries — a dev server, a
-  long build, anything started with `run_in_background`. Those never wake the session, so
-  counting them would pin a card blue forever with the user genuinely waiting.
+- **Only `subagent` counts as an agent — but a `shell` is not automatically inert** (corrected
+  11-09-2026; the older wording here said shells "never wake the session" and that is false).
+  The same list holds `type: "shell"` entries, and an armed **Monitor is one of them**: measured
+  against a Monitor and a backgrounded `sleep 300` in the same turn, the two came back as the
+  same record shape — `type: "shell"`, `status: "running"` — separated by nothing but the
+  free-text `description`. One of them wakes the session on every event it sees; the other can
+  sit there all day. So counting all of them as agents would still pin a card blue forever, and
+  that half of the old warning stands.
+- **What the shells are used for instead (v0.9.82).** Their ids ride along on `--tasks` and are
+  counted as nothing on their own. The deck intersects them with the ids the TRANSCRIPT
+  attributes to a `Monitor` call — the Monitor's `tool_result` announces its task id, a
+  backgrounded `Bash` announces its own differently — and only that intersection suppresses the
+  card's "your turn". Neither source can answer alone: the hook knows what is still alive but
+  not what it is, the transcript knows what it is but never records when a watch ended. An id
+  the transcript cannot attribute counts for nothing, so an unrecognised shell leaves the card
+  behaving exactly as it did before this existed.
 - **No new hook registration, and no new cost.** Everything above rides on the `Stop` hook
   that was already registered. `SubagentStart` / `SubagentStop` would each add a PowerShell
   start *per agent*, which on a wave of ten is ten of them, for information the snapshot
