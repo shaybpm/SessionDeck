@@ -1,4 +1,4 @@
-# SessionDeck installer.
+﻿# SessionDeck installer.
 # Run from the extracted release zip. No admin rights required - everything is per-user.
 # Upgrading = re-running this same script over a newer zip; every step is idempotent.
 # PowerShell 5.1 compatible.
@@ -85,7 +85,18 @@ if ($resolvedSrc -ieq $resolvedDst) {
         if (Test-SameContent $file.FullName $target) { $skipped++; continue }
         $targetDir = Split-Path $target -Parent
         if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Force -Path $targetDir | Out-Null }
-        Copy-Item -Path $file.FullName -Destination $target -Force
+        # Retried, because "no SessionDeck is running" is not a state this machine reaches.
+        # Every Claude Code hook invokes SessionDeck.exe as a CLI client, so on a busy night a
+        # transient client process is almost always alive, and it loads the WPF assemblies just
+        # like the app does. On 11-09-2026 one such client grabbed WindowsBase.dll mid-copy: the
+        # script died there and left the install dir half on the new publish and half on the old,
+        # with the app shut down. A client lives a second or two, so a few spaced retries clear
+        # it; a genuinely held file still fails, loudly, at the end rather than mid-way.
+        $copied = $false
+        for ($try = 1; $try -le 8 -and -not $copied; $try++) {
+            try { Copy-Item -Path $file.FullName -Destination $target -Force -ErrorAction Stop; $copied = $true }
+            catch { if ($try -eq 8) { throw } ; Start-Sleep -Milliseconds 400 }
+        }
         $written++
         $writtenBytes += $file.Length
     }
