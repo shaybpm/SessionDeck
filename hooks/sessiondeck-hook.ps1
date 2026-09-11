@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.84  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.85  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -150,7 +150,14 @@ switch ($HookEvent) {
         $shells = @($payload.background_tasks |
                     Where-Object { $_.type -eq 'shell' -and $_.id } |
                     ForEach-Object { $_.id })
-        $cliArgs += @('--tasks', ($shells -join ','))
+        # The trailing comma is load-bearing. An EMPTY argument is dropped outright by
+        # PowerShell's native-command splatting, so on the common Stop - no background shells -
+        # '--tasks' arrived with no value and swallowed the NEXT option instead: measured
+        # 11-09-2026, sessions across the deck had stored LiveTaskIds = ["--workspace"], and
+        # every one of those turns also lost the cwd self-heal that option carries. A lone
+        # comma survives the call and parses to zero ids (RemoveEmptyEntries), which is what
+        # this line always meant to send.
+        $cliArgs += @('--tasks', (($shells -join ',') + ','))
     }
     # The turn died on an API error. Until this event existed SessionDeck had no hook for
     # its 'error' state at all and the card just went quiet.

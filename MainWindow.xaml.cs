@@ -2500,12 +2500,20 @@ public partial class MainWindow : Window
     }
 
     /// <summary>VSCode truncates long tab labels with a trailing '…' (bug 2026-07-19) —
-    /// a truncated label matches any title it prefixes.</summary>
+    /// a truncated label matches any title it prefixes.
+    ///
+    /// Case-INSENSITIVE, because case is not identity here and the tab keeps whichever
+    /// spelling it was born with. Measured 11-09-2026: Shay ended the Claude-infra session in
+    /// the purple window and opened its successor in orange; Claude Code titled the new one
+    /// "claude-infra" while the tab still read "Claude-infra", so the one live tab matched only
+    /// the DEAD session — whose card then sat in purple saying "ended — tab open", which is the
+    /// ghost he reported, while the live orange session held no tab and was queued for the same
+    /// false orphan close as bc3f3d3f.</summary>
     private static bool TabLabelMatches(string label, string title)
     {
-        if (label == title) return true;
+        if (string.Equals(label, title, StringComparison.OrdinalIgnoreCase)) return true;
         return label.EndsWith('…') && label.Length > 1 &&
-               title.StartsWith(label[..^1], StringComparison.Ordinal);
+               title.StartsWith(label[..^1], StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Does this VSCode tab label belong to this session, and if so which string
@@ -2520,12 +2528,24 @@ public partial class MainWindow : Window
     {
         foreach (var candidate in session.LabelCandidates)
             if (TabLabelMatches(label, candidate)) return candidate;
-        // Same rule as the candidate list: AutoTitle is a prompt/summary, and prompts
-        // label only titleless sessions (T-0313 follow-up — see TranscriptReader).
-        var fallbacks = session.TabTitle is { Length: > 0 }
-            ? new[] { session.CustomTitle, session.TabTitle }
-            : new[] { session.CustomTitle, session.TabTitle, session.AutoTitle };
-        foreach (var title in fallbacks)
+        // AutoTitle counts on a TITLED session too. The rule it replaces assumed VSCode always
+        // relabels a tab once an ai-title exists; measured 11-09-2026 it does not. Session
+        // bc3f3d3f carried ai-title "סשן נושא 1.0" from 17:18:13 while its tab went on reading
+        // its opening prompt, "סשן נושא #1.0" — so from the second the title landed, the
+        // session could not match its own tab, for the rest of its life.
+        //
+        // Both things that rest on "no tab matched" are destructive, which is why this is not
+        // a cosmetic miss: the orphan sweep closed the live card (17:33:08, on a manual
+        // reconcile), and every click on it routed to `claude --resume` in a terminal instead
+        // of revealing the tab that was sitting right there. Shay, with the card gone, opened
+        // the topic again — and ended the afternoon with two live sessions on it.
+        //
+        // What T-0313 was protecting is narrower than the rule that grew out of it: the harm
+        // was a fork and its origin both answering to one label and BLOCKING auto-acknowledge
+        // for both. That is guarded where it happens now (ActiveTabSession), and the prompt
+        // HISTORY — eight per session, the real collision engine — stays out of the candidate
+        // list in TranscriptReader. This adds exactly one string per session.
+        foreach (var title in new[] { session.CustomTitle, session.TabTitle, session.AutoTitle })
             if (title is { Length: > 0 } t && TabLabelMatches(label, t)) return t;
         return null;
     }
@@ -2545,9 +2565,23 @@ public partial class MainWindow : Window
     private static SessionViewModel? ActiveTabSession(WorkspaceViewModel ws)
     {
         if (ws.ActiveClaudeTabLabel is not { } active) return null;
-        var matches = ws.Sessions.Where(s => !s.Closed && TabLabelMatches(active, s)).ToList();
+        var open = ws.Sessions.Where(s => !s.Closed).ToList();
+        // A TITLE match outranks a prompt match, and that is what keeps T-0313 fixed now that
+        // AutoTitle is a candidate again (see MatchTabLabel): a fork and its origin share an
+        // opening prompt, so both answer to the fork's label and the guard below would silence
+        // both — but only one of them can be carrying it as its own ai-title.
+        var titled = open.Where(s => TitleMatchesTab(active, s)).ToList();
+        var matches = titled.Count > 0 ? titled : open.Where(s => TabLabelMatches(active, s)).ToList();
         return matches.Count == 1 ? matches[0] : null;
     }
+
+    /// <summary>Does the label match one of the session's TITLES — what Claude Code named the
+    /// session, never what the user typed at it? Drawn only for the acknowledge decision, where
+    /// a wrong pick silences a real alert; everywhere else a prompt match is a perfectly good
+    /// answer to "does this session have a tab".</summary>
+    private static bool TitleMatchesTab(string label, SessionViewModel session)
+        => new[] { session.CustomTitle, session.TabTitle }
+           .Any(t => t is { Length: > 0 } s && TabLabelMatches(label, s));
 
     /// <summary>Recompute tab↔session correlation (OpenAsTab + auto-acknowledge) from the
     /// workspace's last-known VSCode state. The two match inputs refresh on independent

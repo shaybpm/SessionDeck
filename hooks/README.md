@@ -221,6 +221,12 @@ Three things learned the hard way, all worth keeping:
   not what it is, the transcript knows what it is but never records when a watch ended. An id
   the transcript cannot attribute counts for nothing, so an unrecognised shell leaves the card
   behaving exactly as it did before this existed.
+- **`--tasks` always carries a trailing comma, and that is not cosmetic (v0.9.85).** PowerShell's
+  native-command splatting DROPS an empty argument, so on the ordinary `Stop` — no background
+  shells at all — `--tasks` reached the exe with no value and consumed the next option as its
+  own: measured 11-09-2026, saved session records held `LiveTaskIds = ["--workspace"]`, and every
+  one of those turns also lost the `cwd` self-heal that option exists to carry. A lone comma
+  survives the call and splits to zero ids, which is what the empty list was always meant to be.
 - **No new hook registration, and no new cost.** Everything above rides on the `Stop` hook
   that was already registered. `SubagentStart` / `SubagentStop` would each add a PowerShell
   start *per agent*, which on a wave of ten is ten of them, for information the snapshot

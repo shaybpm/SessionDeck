@@ -242,6 +242,24 @@ entry, which is the proof to look for. Both steps run from anywhere, with nothin
 user's window. The cost is one extra turn in the session's history, and that prompt becomes the
 VSCode tab title unless the card already carries a `CustomTitle`.
 
+**A card that VANISHES, or a dead one that says "ended — tab open", is a label-match failure and
+not a lifecycle event.** Tab correlation is pure string matching and always will be: the VSCode
+tab API hands over a `label` and a `viewType` and no session id, and Claude Code's own id→panel
+registry is reachable only through `editor.open`, which acts rather than answers. So `no tab
+matched` in the log means a comparison failed, never that the session has no tab — and the two
+things resting on it are both destructive. The orphan sweep CLOSES the card (twice on live
+session bc3f3d3f, 11-09-2026, with its own tab in the list both times), and a click routes to
+`claude --resume` in a terminal instead of revealing that tab. Shay's report was the visible end
+of it: the card disappeared, he reopened the topic, and a second live session on it appeared
+beside the first. Two causes, both fixed in v0.9.85 and both worth knowing before adding a third:
+VSCode does **not** relabel a tab when a later `ai-title` lands, so a titled session can go on
+showing its opening prompt (hence AutoTitle is a candidate on a titled session too — but the
+eight-prompt HISTORY still is not, it is the real collision engine); and the comparison is
+case-INSENSITIVE, because a retitled session keeps the tab's original spelling (`claude-infra`
+against a tab reading `Claude-infra` made the one live tab match only the DEAD session). The one
+place that still demands a TITLE match is `ActiveTabSession`: a wrong auto-acknowledge silences a
+real alert, so a fork and its origin sharing a prompt must not resolve there.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
