@@ -73,6 +73,29 @@
                     </TextBlock>
                 </DockPanel>
             </Grid>
+            <!-- The lead line: what this card IS, as opposed to what is happening on it this
+                 week. It is set apart three ways rather than one, because a wall of cards is
+                 scanned rather than read — brighter than the body, a shade warmer than pure
+                 grey, and behind a left rule that ties the wrapped lines together. The rule is
+                 on the Border's Right in an RTL flow, which puts it on the side the text starts
+                 from. Nothing is drawn at all when the producer declares no lead, so every
+                 other view keeps the card it had. -->
+            <Border BorderBrush="#FF5A6572" BorderThickness="2,0,0,0" Padding="6,0,0,0"
+                    Margin="0,4,0,1" HorizontalAlignment="Stretch" FlowDirection="RightToLeft">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasLead}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding Lead}" Foreground="#FFE2E6EA" FontWeight="SemiBold"
+                           FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"
+                           TextWrapping="Wrap" LineHeight="15"
+                           FlowDirection="{Binding Lead, Converter={StaticResource Rtl}}"/>
+            </Border>
             <TextBlock Text="{Binding Description}" Foreground="#FF999999" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=10.5}"
                        TextWrapping="Wrap" Margin="0,2,0,0"
                        FlowDirection="{Binding Description, Converter={StaticResource Rtl}}">

@@ -68,6 +68,12 @@ public class TaskEntry
     public string? Id { get; set; }                  // required
     public string? Name { get; set; }                // required
     public string? Description { get; set; }
+    /// <summary>One line that says what this card IS, drawn above the description in a
+    /// brighter weight so it reads before the body does. Optional, and deliberately a field
+    /// rather than "the first line of the description": only the producer knows whether a
+    /// card's opening line is a subject or just the first of several equal facts, and a deck
+    /// that promoted every first line would shout on every card in every view.</summary>
+    public string? Lead { get; set; }
     public string? Status { get; set; }              // free string, colored via StatusColors
     public bool Pinned { get; set; }
     public string? Workspace { get; set; }           // full folder path — matched to a card by path

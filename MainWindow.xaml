@@ -110,6 +110,27 @@
                             </Style>
                         </Button.Style>
                     </Button>
+                    <!-- Split view: the deck and the task list at once. Its own button rather
+                         than a third stop on 📋, so the button Shay already knows keeps doing
+                         exactly one thing. -->
+                    <Button x:Name="TasksSplitButton" Content="▥" FontSize="14"
+                            ToolTip="Split view: the deck on the left, the tasks page on the right.&#10;Press again, or Esc, to go back to the deck."
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Padding="8,2" Margin="0,2" Cursor="Hand" Click="TasksSplitButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TasksPanel.Enabled}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding TasksPanel.SplitOpen}" Value="True">
+                                        <Setter Property="Foreground" Value="#FF6FB7FF"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                     <ToggleButton x:Name="PinTopToggle" Content="📌" FontSize="13"
                                   ToolTip="Pin: keep the window always on top"
                                   Style="{StaticResource IconToggle}"
@@ -362,9 +383,21 @@
             </DockPanel>
         </Border>
 
-        <Grid>
+        <!-- Three columns rather than two overlaid panels (split view, 12-09-2026). In deck
+             and page mode the two side columns are zero-width and the mode is still "one of
+             them fills the area", exactly as before; in split mode the deck keeps the left
+             column, the tasks page takes the right, and the splitter between them is a real
+             drag handle so Shay sets the ratio himself. The deck is on the LEFT because that
+             is the half he watches, and the column widths are stars so the ratio survives a
+             window resize. -->
+        <Grid x:Name="CentralArea">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="DeckColumn" Width="*"/>
+                <ColumnDefinition x:Name="SplitterColumn" Width="0"/>
+                <ColumnDefinition x:Name="TasksColumn" Width="0"/>
+            </Grid.ColumnDefinitions>
             <!-- deck view: workspace cards + the collapsed tasks strip (T-0116) -->
-            <DockPanel x:Name="DeckView">
+            <DockPanel x:Name="DeckView" Grid.Column="0">
                 <local:TasksStripView x:Name="TasksStrip" DockPanel.Dock="Right"/>
                 <Grid>
                     <!-- SizeChanged on the ScrollViewer, not the ItemsControl: the ItemsControl
@@ -395,8 +428,18 @@
                                Text="The deck is empty&#10;Click “+ Add workspace” and pick a project folder,&#10;or start a Claude Code session with the hooks installed (see the hooks folder)"/>
                 </Grid>
             </DockPanel>
-            <!-- tasks page: swapped with DeckView (T-0116 revised design — page, not expand) -->
-            <local:TasksPageView x:Name="TasksPage" Visibility="Collapsed"/>
+            <!-- The drag handle, and only ever visible in split mode. ShowsPreview stays false
+                 so the two halves re-layout live: the card wrap in the deck reflows as it
+                 moves, which is the thing being sized. -->
+            <GridSplitter x:Name="CentralSplitter" Grid.Column="1" Width="0"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="#FF2E2E2E" ShowsPreview="False"
+                          Visibility="Collapsed"/>
+            <!-- tasks page: swapped with DeckView in page mode (T-0116 revised design — page,
+                 not expand), or beside it in split mode. It spans all three columns when it
+                 is the only thing on screen, so page mode is unchanged by the split columns. -->
+            <local:TasksPageView x:Name="TasksPage" Grid.Column="0" Grid.ColumnSpan="3"
+                                 Visibility="Collapsed"/>
         </Grid>
     </DockPanel>
 </Window>

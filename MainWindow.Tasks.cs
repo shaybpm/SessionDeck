@@ -86,22 +86,75 @@ public partial class MainWindow
 
     // ---- page navigation ----
 
-    public void ShowTasksPage()
+    /// <summary>Column widths for the two halves of the split. Stars, so the ratio Shay drags
+    /// survives every window resize; remembered here (not in the ColumnDefinition) because
+    /// leaving and re-entering split mode zeroes the live ones.</summary>
+    private GridLength _splitDeckWidth = new(1, GridUnitType.Star);
+    private GridLength _splitTasksWidth = new(1, GridUnitType.Star);
+    private const double SplitterWidth = 5;
+
+    /// <summary>The deck's share of the split as it stands right now, for the saved config.
+    /// Read off the live columns while the split is open and off the remembered pair when it
+    /// is not, so closing the split does not save a ratio of 1.</summary>
+    public double CurrentSplitRatio()
     {
-        if (!Vm.TasksPanel.Enabled) return;
-        Vm.TasksPanel.PageOpen = true;
-        DeckView.Visibility = Visibility.Collapsed;
-        TasksPage.Visibility = Visibility.Visible;
-        // The permanent search row now follows the page instead of being locked out by it
-        // (the T-0116 mutual exclusion was removed 07-08-2026).
-        UpdateSearchScope();
+        GridLength deck = Vm.TasksPanel.SplitOpen ? DeckColumn.Width : _splitDeckWidth;
+        GridLength tasks = Vm.TasksPanel.SplitOpen ? TasksColumn.Width : _splitTasksWidth;
+        double total = deck.Value + tasks.Value;
+        return total > 0 ? Math.Clamp(deck.Value / total, 0.15, 0.85) : 0.5;
     }
 
-    public void CloseTasksPage()
+    /// <summary>Restore the saved split at startup. Called after the tasks file is applied,
+    /// because a split with the tasks feature switched off is a blank right half.</summary>
+    public void RestoreTasksSplit(bool open, double deckRatio)
     {
-        Vm.TasksPanel.PageOpen = false;
-        TasksPage.Visibility = Visibility.Collapsed;
-        DeckView.Visibility = Visibility.Visible;
+        double ratio = double.IsFinite(deckRatio) ? Math.Clamp(deckRatio, 0.15, 0.85) : 0.5;
+        _splitDeckWidth = new GridLength(ratio, GridUnitType.Star);
+        _splitTasksWidth = new GridLength(1 - ratio, GridUnitType.Star);
+        if (open && Vm.TasksPanel.Enabled) ShowTasksSplit();
+    }
+
+    public void ShowTasksPage() => SetTasksView(page: true, split: false);
+
+    /// <summary>Split view (Shay, 12-09-2026): the deck and the task list side by side, the
+    /// deck on the left. The tasks page hides its own "Active sessions" rail here, because the
+    /// deck beside it is that information in full.</summary>
+    public void ShowTasksSplit() => SetTasksView(page: true, split: true);
+
+    public void CloseTasksPage() => SetTasksView(page: false, split: false);
+
+    /// <summary>The one place the three display modes are decided, so no pair of them can
+    /// disagree about who owns a column. Deck: the left column takes everything. Page: the
+    /// tasks page spans all three. Split: both halves, with the drag handle between them.</summary>
+    private void SetTasksView(bool page, bool split)
+    {
+        if (page && !Vm.TasksPanel.Enabled) return;
+        // Remember the ratio before the widths are zeroed on the way out of split mode.
+        if (Vm.TasksPanel.SplitOpen && DeckColumn.Width.IsStar && TasksColumn.Width.IsStar)
+        {
+            _splitDeckWidth = DeckColumn.Width;
+            _splitTasksWidth = TasksColumn.Width;
+        }
+        Vm.TasksPanel.PageOpen = page;
+        Vm.TasksPanel.SplitOpen = split;
+
+        DeckView.Visibility = (!page || split) ? Visibility.Visible : Visibility.Collapsed;
+        TasksPage.Visibility = page ? Visibility.Visible : Visibility.Collapsed;
+        CentralSplitter.Visibility = split ? Visibility.Visible : Visibility.Collapsed;
+
+        // ColumnSpan is what keeps page mode identical to what it was before the split existed:
+        // the page covers the whole area and the column widths underneath it are irrelevant.
+        Grid.SetColumn(TasksPage, split ? 2 : 0);
+        Grid.SetColumnSpan(TasksPage, split ? 1 : 3);
+
+        DeckColumn.Width = split ? _splitDeckWidth : new GridLength(1, GridUnitType.Star);
+        SplitterColumn.Width = new GridLength(split ? SplitterWidth : 0);
+        TasksColumn.Width = split ? _splitTasksWidth : new GridLength(0);
+        CentralSplitter.Width = split ? SplitterWidth : 0;
+
+        LogService.Info("tasks", $"view = {(split ? "split" : page ? "page" : "deck")}");
+        // The permanent search row now follows the page instead of being locked out by it
+        // (the T-0116 mutual exclusion was removed 07-08-2026).
         UpdateSearchScope();
     }
 

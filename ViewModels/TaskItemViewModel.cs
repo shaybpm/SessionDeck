@@ -13,6 +13,9 @@ public sealed class TaskItemViewModel
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string Description { get; init; } = "";
+    /// <summary>The producer's one-line answer to "what is this card", drawn above the
+    /// description and brighter than it.</summary>
+    public string Lead { get; init; } = "";
     public string Status { get; init; } = "";
     public bool Pinned { get; init; }
     public string WorkspacePath { get; init; } = "";
@@ -23,6 +26,7 @@ public sealed class TaskItemViewModel
     public string SessionPrompt { get; init; } = "";
 
     public bool HasDescription => Description.Length > 0;
+    public bool HasLead => Lead.Length > 0;
     public bool HasStatus => Status.Length > 0;
     public bool HasUrl => Url.Length > 0;
     public bool HasWorkspace => WorkspacePath.Length > 0;
@@ -35,7 +39,8 @@ public sealed class TaskItemViewModel
            || Id.Contains(query, StringComparison.OrdinalIgnoreCase)
            || Name.Contains(query, StringComparison.OrdinalIgnoreCase)
            || Status.Contains(query, StringComparison.OrdinalIgnoreCase)
-           || Description.Contains(query, StringComparison.OrdinalIgnoreCase);
+           || Description.Contains(query, StringComparison.OrdinalIgnoreCase)
+           || Lead.Contains(query, StringComparison.OrdinalIgnoreCase);
     /// <summary>The workspace/sessions button exists when there is anywhere to go.</summary>
     public bool HasTarget => HasWorkspace || Sessions.Count > 0;
 
@@ -57,6 +62,7 @@ public sealed class TaskItemViewModel
         {
             var lines = new List<string> { $"‏{Id} — {Name}" };
             if (HasStatus) lines.Add($"Status: {Status}");
+            if (HasLead) lines.Add(Lead);
             if (HasDescription) lines.Add(Description);
             if (Pinned) lines.Add("📌 Pinned");
             return string.Join(Environment.NewLine, lines);
@@ -75,6 +81,7 @@ public sealed class TaskItemViewModel
             Id = entry.Id!.Trim(),
             Name = entry.Name!.Trim(),
             Description = entry.Description?.Trim() ?? "",
+            Lead = entry.Lead?.Trim() ?? "",
             Status = status,
             Pinned = entry.Pinned,
             WorkspacePath = entry.Workspace?.Trim() ?? "",
