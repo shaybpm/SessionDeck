@@ -211,7 +211,10 @@ public partial class MainWindow : Window
                     Closed = sc.Closed,
                     StartedAt = sc.StartedAt,
                     EndedAt = sc.EndedAt,
-                    Detail = sc.Detail,
+                    // Drop a machine wake-up saved by a build that still stored them (see
+                    // IsMachineWakeup). Without this the junk line survives every restart until
+                    // that session happens to get a human prompt, which on an idle card is never.
+                    Detail = sc.Detail is { } d && IsMachineWakeup(d) ? "" : sc.Detail,
                     TranscriptPath = sc.TranscriptPath,
                     Source = sc.Source,
                     PermissionMode = sc.PermissionMode,
@@ -1829,7 +1832,7 @@ public partial class MainWindow : Window
     {
         session.LastEventAt = DateTime.Now;
         session.OrphanSince = null;   // any hook event is proof of life — restart the orphan clock
-        if (info.Detail != null) session.Detail = Sanitize(info.Detail);
+        if (info.Detail != null && !IsMachineWakeup(info.Detail)) session.Detail = Sanitize(info.Detail);
         if (info.Transcript != null) session.TranscriptPath = info.Transcript;
         if (info.Source != null) session.Source = info.Source;
         if (info.Mode != null) session.PermissionMode = info.Mode;
@@ -1862,6 +1865,21 @@ public partial class MainWindow : Window
             QueueSave();
         }
     }
+
+    /// <summary>A prompt the MACHINE delivered, not something a person typed.
+    ///
+    /// A background agent or a Monitor finishing wakes its session through UserPromptSubmit with
+    /// the task-notification envelope as the "prompt", so the hook forwards it as a detail like
+    /// any other. On a session running waves that fires every couple of minutes, and the card's
+    /// second line read `&lt;task-notification&gt; &lt;task-id&gt;a062e3ca…` instead of anything a
+    /// person could use — on nine of the thirteen live cards, measured 11-09-2026. Shay, asked
+    /// what he wanted there instead: his own last line. It always WAS that; these were erasing it.
+    ///
+    /// Only this one shape is filtered, because only this one is noise. A relay message from
+    /// another session is a real instruction and stays, unwrapped by Sanitize; a permission
+    /// subject and a StopFailure reason are more urgent than anything he typed and stay too.</summary>
+    private static bool IsMachineWakeup(string detail)
+        => detail.TrimStart().StartsWith("<task-notification", StringComparison.Ordinal);
 
     /// <summary>Hook details (prompts, messages) become one bounded display line.</summary>
     private static string Sanitize(string s)
