@@ -237,11 +237,20 @@ lifecycle is broken; the log is what shows the actual ordering of hook arrival v
 scan. The thresholds, the false-alarm measurements behind them and the
 `PermissionDialogScanMark` bound are documented in [`hooks/README.md`](hooks/README.md).
 
-**A `done` card with live waves does not blink** (this fork, v0.9.78). A session that fires a
-headless wave really does end its turn, so it goes `done` and blinks purple, which on this deck
-means "your turn" — the one thing it is not. Since 0.9.78 `BlinkActive` returns false for `done`
-while `DispatchedRuns > 0`; the colour is untouched, because `done` is true, and `waiting` and
-`error` still blink with waves out. Waves also left the `🤖` chip for a `🌊` of their own: the two
+**A `done` card with live waves does not blink, and since v0.9.81 it does not look like his turn
+either.** A session that fires a headless wave really does end its turn, so it goes `done` and
+blinks purple, which on this deck means "your turn" — the one thing it is not. 0.9.78 made
+`BlinkActive` return false for `done` while `DispatchedRuns > 0` and deliberately left the colour
+alone, because `done` is true. That was half a fix: **the deck is read by COLOUR**, a wall of cards
+is scanned for purple, and a purple card reading "your turn" is a request for him whether or not it
+blinks (Shay, 11-09-2026, on a session that had dispatched a wave and armed a monitor). So while a
+wave of its own is running the card takes the wave chip's own colour and says `wave running` /
+`N waves running` instead. `WaitingOnWaves` is a presentation rule only — the status underneath
+stays `done`, and it is deliberately NOT a new `StatusStyles` entry, because a configurable colour
+for a derived state is how the two drift. `waiting` and `error` still blink with waves out.
+**After a deck restart the card says "your turn" until the first session event**, because
+`RefreshDispatchedRuns` recounts on session events only; with twenty live sessions that is seconds,
+but it is why a card can look wrong for a moment right after an install. Waves also left the `🤖` chip for a `🌊` of their own: the two
 counts used to be summed, so the card could not say which kind of work was out, and that is the
 part that decides whether he has to walk over to the window. The count itself comes from the
 walk in `RefreshDispatchedRuns`, so **a deck that was not running when the wave started shows
