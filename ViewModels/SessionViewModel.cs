@@ -391,7 +391,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         {
             var lines = new List<string>();
             if (_detail.Length > 0) lines.Add(_detail);
-            if (_backgroundAgents > 0) lines.Add(BackgroundAgentsTip);
+            if (AgentsRunning > 0) lines.Add(AgentsTip);
             if (_dispatchedRuns > 0) lines.Add(DispatchedRunsTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Headline only — the ⛁ chip's own tooltip carries the breakdown.
@@ -445,11 +445,44 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_backgroundAgents == value) return;
             _backgroundAgents = value;
             Raise();
-            Raise(nameof(HasBackgroundAgents));
-            Raise(nameof(BackgroundAgentsText));
-            Raise(nameof(BackgroundAgentsTip));
-            Raise(nameof(TooltipText));
+            RaiseAgentChip();
         }
+    }
+
+    private int _foregroundAgents;
+    /// <summary>Subagents running in the FOREGROUND — an Agent call made without
+    /// run_in_background, which holds the session's turn until it comes back. No hook reports
+    /// these and none can: Stop's <c>background_tasks</c> lists only background tasks, and the
+    /// PostToolUse that counts a launch fires for a foreground agent only once it has already
+    /// FINISHED. So the card showed nothing at all while four verification agents ran for eight
+    /// minutes, right after the session had announced them in chat (Shay, 11-09-2026) — blue
+    /// "working" with no chip is indistinguishable from a session doing nothing.
+    ///
+    /// Read from the transcript instead, where a foreground Agent call sits as an unresolved
+    /// tool_use for exactly as long as the agent works. Not persisted and never tallied: every
+    /// scan recomputes it, so a crash, a deck restart or a killed agent cannot leave it stuck.
+    /// Unlike <see cref="BackgroundAgents"/> it does NOT hold the turn — it cannot: while a
+    /// foreground agent runs the turn has not ended, so no Stop has claimed the user's turn
+    /// yet.</summary>
+    public int ForegroundAgents
+    {
+        get => _foregroundAgents;
+        set
+        {
+            if (_foregroundAgents == value) return;
+            _foregroundAgents = value;
+            Raise();
+            RaiseAgentChip();
+        }
+    }
+
+    private void RaiseAgentChip()
+    {
+        Raise(nameof(AgentsRunning));
+        Raise(nameof(HasAgents));
+        Raise(nameof(AgentsText));
+        Raise(nameof(AgentsTip));
+        Raise(nameof(TooltipText));
     }
 
     private string? _dispatchedBy;
@@ -496,16 +529,30 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// his: a subagent comes back INTO the session, a wave reports through the agenda and
     /// leaves the session free to be waiting on him. Reading which of the two is out decided
     /// whether he needs to walk over to that window, and a merged count made him open the
-    /// tooltip every time.</summary>
-    public bool HasBackgroundAgents => _backgroundAgents > 0;
+    /// tooltip every time.
+    ///
+    /// Foreground and background subagents DO share one 🤖, because on that question they give
+    /// the same answer: agents of this session are out, it will come back on its own, leave it
+    /// alone. The card's own colour already separates them — blue means the turn is still open
+    /// and the agents are foreground, purple means the turn ended and only background ones can
+    /// still be out — so a second glyph would split a distinction the border already
+    /// draws.</summary>
+    public int AgentsRunning => _backgroundAgents + _foregroundAgents;
+
+    public bool HasAgents => AgentsRunning > 0;
 
     /// <summary>The chip on the card: the icon alone for one, icon + count for more.</summary>
-    public string BackgroundAgentsText => _backgroundAgents > 1 ? $"🤖{_backgroundAgents}" : "🤖";
+    public string AgentsText => AgentsRunning > 1 ? $"🤖{AgentsRunning}" : "🤖";
 
-    public string BackgroundAgentsTip =>
-        _backgroundAgents == 1
-            ? "1 subagent is still running — the session resumes on its own when it reports back"
-            : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
+    public string AgentsTip => _backgroundAgents > 0 && _foregroundAgents > 0
+        ? $"{AgentsRunning} subagents are still running ({_foregroundAgents} holding the turn, {_backgroundAgents} in the background) — the session comes back on its own"
+        : _foregroundAgents > 0
+            ? _foregroundAgents == 1
+                ? "1 subagent is still running — the session is blocked on it and resumes by itself when it returns"
+                : $"{_foregroundAgents} subagents are still running — the session is blocked on them and resumes by itself when they return"
+            : _backgroundAgents == 1
+                ? "1 subagent is still running — the session resumes on its own when it reports back"
+                : $"{_backgroundAgents} subagents are still running — the session resumes on its own when they report back";
 
     public bool HasDispatchedRuns => _dispatchedRuns > 0;
 
