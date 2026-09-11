@@ -516,6 +516,8 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             Raise(nameof(DispatchedRunsText));
             Raise(nameof(DispatchedRunsTip));
             Raise(nameof(TooltipText));
+            Raise(nameof(WaitingOnWaves));
+            Raise(nameof(StatusDisplay));
             // The count is what silences the blink on a `done` card (see BlinkActive), so a
             // change to it has to repaint the border. The engine's own tick would catch it
             // within 100ms; this makes it the same frame.
@@ -729,7 +731,23 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     public string StatusDisplay =>
         Closed ? (EndedTabOpen ? "ended · tab open" : ClosedLabel)
                : _status == SessionStatus.Replaced && _openAsTab ? "replaced · close its tab"
+               : WaitingOnWaves ? (_dispatchedRuns > 1 ? $"{_dispatchedRuns} waves running" : "wave running")
                : SessionStatusNames.ToDisplay(_status);
+
+    /// <summary>The turn really has ended, but what it is waiting for is a machine, not Shay.
+    /// Silencing the blink was not enough (Shay, 11-09-2026, on a session that had dispatched a
+    /// wave and armed a monitor: "זה חשוב שסשן יבקש אותי רק כשהוא צריך התערבות שלי"). He reads the deck by COLOUR: a wall
+    /// of cards is scanned for purple, and a purple card saying "your turn" is a request for him
+    /// whether or not it blinks. So the card stops claiming his turn entirely while a wave of
+    /// its own is still running - it takes the wave chip's own colour and says what it is
+    /// actually waiting for. The status underneath is untouched and still `done`; this is a
+    /// presentation rule, exactly like the blink suppression it extends.</summary>
+    public bool WaitingOnWaves => !_closed && _status == SessionStatus.Done && _dispatchedRuns > 0;
+
+    /// <summary>The wave chip's colour, reused as the card's border so the two read as one
+    /// statement. Deliberately not a new entry in StatusStyles: the status IS `done`, and a
+    /// configurable colour for a derived presentation state would let the two drift.</summary>
+    private const string WaveBorderColor = "#FF7FB8D8";
 
     private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");
 
@@ -773,6 +791,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         get
         {
             if (_closed) return MakeBrush("#555555");
+            if (WaitingOnWaves) return MakeBrush(WaveBorderColor);
             var style = ResolveStyle(_status);
             string color = BlinkActive && _altPhase ? style.AltColor ?? "black" : style.Color;
             return MakeBrush(color);
