@@ -576,8 +576,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// deliberately not shown anywhere: a Monitor armed to wake the session and an
     /// `npm run dev` nobody will ever look at again are the same record here (measured
     /// 11-09-2026 — both type=shell, status=running, separated only by free text). Half of
-    /// <see cref="ActiveWatches"/>; the other half comes from the transcript. Not persisted,
-    /// like the agent counts: the session's next Stop refills it.</summary>
+    /// <see cref="ActiveWatches"/>; the other half comes from the transcript.
+    ///
+    /// PERSISTED, unlike the agent counts and unlike this field in 0.9.82, which is the bug that
+    /// shipped: a session waiting on a monitor emits no hook at all until the monitor wakes it,
+    /// so a restart had nothing to refill this from and the card went back to blinking purple on
+    /// every install. The next Stop still overwrites it, which is what keeps a stale list from
+    /// outliving its turn — the hook sends this even when it is empty.</summary>
     public IReadOnlyList<string> LiveTaskIds
     {
         get => _liveTaskIds;

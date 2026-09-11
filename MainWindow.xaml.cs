@@ -929,8 +929,14 @@ public partial class MainWindow : Window
                     int watchesBefore = session.ActiveWatches;
                     session.MonitorTaskIds = tInfo.MonitorTaskIds ?? Array.Empty<string>();
                     if (session.ActiveWatches != watchesBefore)
+                    {
                         LogService.Info("status", $"session={session.SessionId} " +
                             $"watches {watchesBefore}→{session.ActiveWatches} (transcript ∩ background_tasks)");
+                        // Worth a save of its own: this half has no other writer, and leaving it
+                        // to whatever hook event happens along next is how it would be missing
+                        // from the config at the one moment it is read — the restart.
+                        changed = true;
+                    }
                     if (ApplyLostAgents(session, tInfo.Lost)) changed = true;
                 }
                 // Evaluate right after a scan too, so a question goes orange at once
