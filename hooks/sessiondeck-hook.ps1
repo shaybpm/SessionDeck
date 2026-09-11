@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.67  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.82  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -139,6 +139,18 @@ switch ($HookEvent) {
         $cliArgs = @('session', 'status', '--id', $sid, '--state', 'done')
         $agents = @($payload.background_tasks | Where-Object { $_.type -eq 'subagent' })
         $cliArgs += @('--agents', $agents.Count)
+        # The SHELL entries of the same registry, forwarded as bare ids and counted as
+        # nothing here. A Monitor and a dev server are the same record at this level -
+        # measured 11-09-2026: an armed Monitor and a backgrounded `sleep 300` both came
+        # back as type=shell, status=running, with only a free-text description between
+        # them. So the hook must not decide: one of them wakes the session and the other
+        # can run all day, and counting both would pin a card that really does want Shay.
+        # The deck intersects these ids with the ones the transcript attributes to a
+        # Monitor call, which is the only place the distinction is written down.
+        $shells = @($payload.background_tasks |
+                    Where-Object { $_.type -eq 'shell' -and $_.id } |
+                    ForEach-Object { $_.id })
+        $cliArgs += @('--tasks', ($shells -join ','))
     }
     # The turn died on an API error. Until this event existed SessionDeck had no hook for
     # its 'error' state at all and the card just went quiet.

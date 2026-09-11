@@ -393,6 +393,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_detail.Length > 0) lines.Add(_detail);
             if (AgentsRunning > 0) lines.Add(AgentsTip);
             if (_dispatchedRuns > 0) lines.Add(DispatchedRunsTip);
+            if (ActiveWatches > 0) lines.Add(WatchesTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Headline only — the ⛁ chip's own tooltip carries the breakdown.
             if (_tokens is { Requests: > 0 } tk)
@@ -517,6 +518,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             Raise(nameof(DispatchedRunsTip));
             Raise(nameof(TooltipText));
             Raise(nameof(WaitingOnWaves));
+            Raise(nameof(WaitingOnMachine));
             Raise(nameof(StatusDisplay));
             // The count is what silences the blink on a `done` card (see BlinkActive), so a
             // change to it has to repaint the border. The engine's own tick would catch it
@@ -567,6 +569,82 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         _dispatchedRuns == 1
             ? "1 headless run it launched is still going — it reports back through the agenda, not into the session, so this card is not blinking for you"
             : $"{_dispatchedRuns} headless runs it launched are still going — they report back through the agenda, not into the session, so this card is not blinking for you";
+
+    private IReadOnlyList<string> _liveTaskIds = Array.Empty<string>();
+    /// <summary>The ids of the background SHELL tasks still running when the last turn ended,
+    /// straight off the Stop hook's <c>background_tasks</c>. Meaningless on its own and
+    /// deliberately not shown anywhere: a Monitor armed to wake the session and an
+    /// `npm run dev` nobody will ever look at again are the same record here (measured
+    /// 11-09-2026 — both type=shell, status=running, separated only by free text). Half of
+    /// <see cref="ActiveWatches"/>; the other half comes from the transcript. Not persisted,
+    /// like the agent counts: the session's next Stop refills it.</summary>
+    public IReadOnlyList<string> LiveTaskIds
+    {
+        get => _liveTaskIds;
+        set
+        {
+            if (_liveTaskIds.SequenceEqual(value)) return;
+            _liveTaskIds = value;
+            RaiseWatchChip();
+        }
+    }
+
+    private IReadOnlyList<string> _monitorTaskIds = Array.Empty<string>();
+    /// <summary>The task ids this session armed with the Monitor tool, read from the
+    /// transcript (see TranscriptInfo.MonitorTaskIds). The transcript cannot say whether a
+    /// watch is still up — a Monitor is answered immediately and its end is never written —
+    /// so this is only the type half of the answer.</summary>
+    public IReadOnlyList<string> MonitorTaskIds
+    {
+        get => _monitorTaskIds;
+        set
+        {
+            if (_monitorTaskIds.SequenceEqual(value)) return;
+            _monitorTaskIds = value;
+            RaiseWatchChip();
+        }
+    }
+
+    /// <summary>Watches this session has out: the background tasks still running that the
+    /// transcript attributes to a Monitor call. Neither source can answer alone — the hook
+    /// knows what is alive but not what it is, the transcript knows what it is but not
+    /// whether it is alive — and the intersection is the only honest reading of "this
+    /// session is waiting on a machine, not on Shay".
+    ///
+    /// A plain background shell is deliberately NOT counted, and that is the whole design.
+    /// Counting every running shell would be the easy version and it trades one false alarm
+    /// for another: a session that leaves a dev server up and then genuinely finishes with a
+    /// question for Shay would never claim his turn again. The repo's rule is precision over
+    /// coverage, so an unattributable task counts for nothing and the card behaves exactly as
+    /// it did before this existed.</summary>
+    public int ActiveWatches =>
+        _monitorTaskIds.Count == 0 || _liveTaskIds.Count == 0
+            ? 0
+            : _liveTaskIds.Count(id => _monitorTaskIds.Contains(id));
+
+    public bool HasWatches => ActiveWatches > 0;
+
+    /// <summary>The watch chip. 📡 rather than a third 🤖 or a second 🌊 because it answers a
+    /// different question again: nothing of this session's is computing, it is listening, and
+    /// the thing it listens for may never come.</summary>
+    public string WatchesText => ActiveWatches > 1 ? $"📡{ActiveWatches}" : "📡";
+
+    public string WatchesTip => ActiveWatches == 1
+        ? "1 monitor it armed is still watching — an event wakes the session by itself, so this card is not asking for you"
+        : $"{ActiveWatches} monitors it armed are still watching — an event wakes the session by itself, so this card is not asking for you";
+
+    private void RaiseWatchChip()
+    {
+        Raise(nameof(ActiveWatches));
+        Raise(nameof(HasWatches));
+        Raise(nameof(WatchesText));
+        Raise(nameof(WatchesTip));
+        Raise(nameof(WaitingOnWatch));
+        Raise(nameof(WaitingOnMachine));
+        Raise(nameof(StatusDisplay));
+        Raise(nameof(TooltipText));
+        Raise(nameof(BorderBrush));
+    }
 
     private int _lostAgents;
     private string _lostAgentsDetail = "";
@@ -732,6 +810,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         Closed ? (EndedTabOpen ? "ended · tab open" : ClosedLabel)
                : _status == SessionStatus.Replaced && _openAsTab ? "replaced · close its tab"
                : WaitingOnWaves ? (_dispatchedRuns > 1 ? $"{_dispatchedRuns} waves running" : "wave running")
+               : WaitingOnWatch ? (ActiveWatches > 1 ? $"watching, {ActiveWatches} monitors" : "watching")
                : SessionStatusNames.ToDisplay(_status);
 
     /// <summary>The turn really has ended, but what it is waiting for is a machine, not Shay.
@@ -744,10 +823,27 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// presentation rule, exactly like the blink suppression it extends.</summary>
     public bool WaitingOnWaves => !_closed && _status == SessionStatus.Done && _dispatchedRuns > 0;
 
-    /// <summary>The wave chip's colour, reused as the card's border so the two read as one
-    /// statement. Deliberately not a new entry in StatusStyles: the status IS `done`, and a
-    /// configurable colour for a derived presentation state would let the two drift.</summary>
-    private const string WaveBorderColor = "#FF7FB8D8";
+    /// <summary>The same rule for a session whose turn ended with a Monitor still armed. This
+    /// was the measured heart of the complaint, not an extrapolation of it: session #2.0 landed
+    /// its wave at 04:26, the count fell to zero, the card went straight back to purple "your
+    /// turn", and the session woke itself off its monitor at 04:30 (11-09-2026). Four minutes of
+    /// a card asking for Shay while the session sat waiting for a machine.
+    ///
+    /// Only monitors — see <see cref="ActiveWatches"/> for why a background shell is not counted
+    /// and must not be.</summary>
+    public bool WaitingOnWatch => !_closed && _status == SessionStatus.Done && ActiveWatches > 0;
+
+    /// <summary>The turn ended, but what it is waiting for is a machine. One flag over both
+    /// cases because on the question the deck's colour answers — is this card asking for me —
+    /// a wave and a monitor say the same thing, and Shay reads a wall of cards by scanning for
+    /// purple. The chips (🌊 / 📡) carry the difference for anyone who wants it.</summary>
+    public bool WaitingOnMachine => WaitingOnWaves || WaitingOnWatch;
+
+    /// <summary>The colour a card takes while it waits on a machine, shared by waves and
+    /// watches so purple keeps meaning one thing only. Deliberately not an entry in
+    /// StatusStyles: the status IS `done`, and a configurable colour for a derived
+    /// presentation state would let the two drift.</summary>
+    private const string MachineWaitBorderColor = "#FF7FB8D8";
 
     private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");
 
@@ -770,7 +866,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             // "look at me". Deliberately `done` alone: `waiting` and `error` need him
             // whether or not a wave of his is out, and silencing those would trade a false
             // alarm for a missed one.
-            if (_status == SessionStatus.Done && _dispatchedRuns > 0) return false;
+            if (_status == SessionStatus.Done && (_dispatchedRuns > 0 || ActiveWatches > 0)) return false;
             var style = ResolveStyle(_status);
             if (style.AltColor == null) return false;
             return !style.UntilAcknowledge || !_acknowledged;
@@ -791,7 +887,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         get
         {
             if (_closed) return MakeBrush("#555555");
-            if (WaitingOnWaves) return MakeBrush(WaveBorderColor);
+            if (WaitingOnMachine) return MakeBrush(MachineWaitBorderColor);
             var style = ResolveStyle(_status);
             string color = BlinkActive && _altPhase ? style.AltColor ?? "black" : style.Color;
             return MakeBrush(color);
