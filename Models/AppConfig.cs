@@ -504,6 +504,15 @@ public class AppConfig
     /// shows whichever level the page was last left on, which is rarely the one you want, and
     /// the toolbar's toolbar button opens the page anyway. The ⚙ menu brings it back.</summary>
     public bool ShowTasksStrip { get; set; }
+    /// <summary>Split view — the deck and the tasks page side by side (Shay, 12-09-2026).
+    /// Persisted, unlike the ordinary tasks page, because it is a way of USING the deck rather
+    /// than somewhere you go and come back from: a deck that opened flat every morning would
+    /// have to be re-split every morning.</summary>
+    public bool TasksSplitOpen { get; set; }
+    /// <summary>The deck's share of the split, 0.15 to 0.85. Saved so the ratio he drags is the
+    /// one he gets back; clamped on load, because a value outside that band is a half he can no
+    /// longer grab with the mouse.</summary>
+    public double TasksSplitRatio { get; set; } = 0.5;
     /// <summary>The live DWM preview of the bound VSCode window on every workspace card.
     /// Off by default in this fork (Shay, 08-09-2026: he does not read it, and it costs 170px
     /// on every card, which is the deck's scarcest resource). Off, the band collapses to

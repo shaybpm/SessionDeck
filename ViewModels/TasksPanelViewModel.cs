@@ -119,6 +119,28 @@ public sealed class TasksPanelViewModel : INotifyPropertyChanged
         set { if (_pageOpen != value) { _pageOpen = value; Raise(); } }
     }
 
+    private bool _splitOpen;
+    /// <summary>Split view (Shay, 12-09-2026): the deck on the left and the tasks page on the
+    /// right, both live at once, instead of one replacing the other. PageOpen is true as well
+    /// while this is on — everything that asks "is the task list on screen" (the search scope,
+    /// Escape, the activate flow) keeps working without knowing the mode exists.</summary>
+    public bool SplitOpen
+    {
+        get => _splitOpen;
+        set
+        {
+            if (_splitOpen == value) return;
+            _splitOpen = value;
+            Raise();
+            Raise(nameof(ShowSessionRail));
+        }
+    }
+
+    /// <summary>The tasks page's own "Active sessions" rail. It is the deck's information in
+    /// a narrower shape, so in split view — where the real deck is open beside it — it is a
+    /// second copy of what the left half already shows, and Shay asked for it gone there.</summary>
+    public bool ShowSessionRail => !_splitOpen;
+
     /// <summary>newSessionPrompt template from the file's envelope (may be null).</summary>
     public string? NewSessionPrompt { get; private set; }
 

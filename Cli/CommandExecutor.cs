@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
-        "prompt", "page", "dispatcher", "group", "after", "tasks",
+        "prompt", "page", "view", "dispatcher", "group", "after", "tasks",
     };
 
     private readonly MainWindow _window;
@@ -487,6 +487,20 @@ public sealed class CommandExecutor
         {
             if (page is not ("on" or "off")) return Err("--page must be on or off");
             if (page == "on") _window.ShowTasksPage(); else _window.CloseTasksPage();
+        }
+        // The same door for all three modes, once "page or not" stopped being the whole
+        // question (split view, 12-09-2026). --page stays exactly as it was: it is in the
+        // manual-verify checklist and in muscle memory.
+        if (a.Options.TryGetValue("view", out var view))
+        {
+            switch (view)
+            {
+                case "deck": _window.CloseTasksPage(); break;
+                case "page": _window.ShowTasksPage(); break;
+                case "split": _window.ShowTasksSplit(); break;
+                default: return Err("--view must be deck, page or split");
+            }
+            _window.QueueSave();
         }
         var p = Vm.TasksPanel;
         string state = p.HasError ? $"ERROR: {p.ErrorText}"

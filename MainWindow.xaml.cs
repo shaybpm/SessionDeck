@@ -342,6 +342,9 @@ public partial class MainWindow : Window
         }
 
         ApplyTasksFile(config.TasksFilePath);   // after workspaces, so task links resolve
+        // After ApplyTasksFile on purpose: the split is only meaningful once the tasks feature
+        // is on, and ApplyTasksFile closes the page when it is not.
+        RestoreTasksSplit(config.TasksSplitOpen, config.TasksSplitRatio);
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -406,6 +409,8 @@ public partial class MainWindow : Window
             AlwaysOnTop = Vm.AlwaysOnTop,
             WindowsNotifications = Vm.WindowsNotifications,
             ShowTasksStrip = Vm.ShowTasksStrip,
+            TasksSplitOpen = Vm.TasksPanel.SplitOpen,
+            TasksSplitRatio = CurrentSplitRatio(),
             ShowWindowPreviews = Vm.ShowWindowPreviews,
             DebugLogging = LogService.DebugEnabled,
             TasksFilePath = Vm.TasksFilePath,
@@ -3729,6 +3734,14 @@ public partial class MainWindow : Window
     }
 
     private void TasksPageButton_Click(object sender, RoutedEventArgs e) => ShowTasksPage();
+
+    /// <summary>▥ toggles the split: a second press returns to the deck, so the button that
+    /// turned the mode on is also the one that turns it off.</summary>
+    private void TasksSplitButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.TasksPanel.SplitOpen) CloseTasksPage();
+        else ShowTasksSplit();
+    }
 
     private void SearchClear_Click(object sender, RoutedEventArgs e)
     {
