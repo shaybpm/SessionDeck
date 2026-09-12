@@ -326,6 +326,21 @@ LEFT anything. `viaTerminal` now also requires `ws.UnexplainedTabs == 0`; short 
 reveals instead, which is the right fallback and always was, since Claude Code's own id→panel
 registry is the one thing that can find a tab a label cannot.
 
+**The sweep asks about the session's OWN window, not the card's (v0.9.94), and it tells "gone"
+apart from "not yet here".** A card is a folder and its sessions are spread over that folder's
+three instances, so "some window of this card is connected" says nothing about the one a given
+session lives in — its tabs are simply absent from the union, and all of its sessions look
+tabless in the same instant. Measured 12-09-2026 at 20:28:53, twenty-four seconds after a deck
+restart: purple, green and the SessionDeck window had reconnected and orange had not, and a
+manual ↻ closed SEVEN live orange cards in forty milliseconds. Same shape as 05-09, when the
+green instance going down took seven with it; the lesson was recorded then and the sweep was
+never taught it. `_groupSeen` / `_groupGoneAt` now hold per-group liveness: a group that was
+watched connect and then lost its last connector is the dead-window shape one level down
+(`hostDied`, `DeadWindowTtl`), and a group this deck has never watched connect is **unknown**, so
+nothing is concluded about its sessions at all — which is precisely the state a window that has
+not finished launching is in, and the two had been collapsed into one. Both are runtime only: a
+restart starts over knowing nothing, which is the correct starting point.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus

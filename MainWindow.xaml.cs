@@ -729,6 +729,37 @@ public partial class MainWindow : Window
     /// anything. See WorkspaceViewModel.ConnectorsChangedAt for what this is paying for.</summary>
     private static readonly TimeSpan TabsSettleGrace = TimeSpan.FromSeconds(10);
 
+    /// <summary>Per-GROUP liveness, the card-level ws.WindowGoneAt one level down. A card is a
+    /// folder and its sessions live in several instances of it, so the card's own connector
+    /// state answers nothing about any particular session. Keyed "&lt;ws path&gt;|&lt;group id&gt;":
+    /// _groupSeen holds every group this deck has watched connect, and _groupGoneAt when one it
+    /// HAD then lost its last connector. A group absent from _groupSeen is not gone, it is
+    /// unknown — which is exactly the state a window that has not finished launching is in, and
+    /// the difference the sweep gets wrong when it treats them alike. Runtime only: a restart
+    /// starts over, and knowing nothing is the correct starting point.</summary>
+    private readonly HashSet<string> _groupSeen = new();
+    private readonly Dictionary<string, DateTime> _groupGoneAt = new();
+
+    private static string GroupKey(WorkspaceViewModel ws, string groupId)
+        => WorkspaceMetadata.NormalizePath(ws.Path) + "|" + groupId;
+
+    /// <summary>Record which of this card's groups currently have a window reporting. Called
+    /// wherever the connector picture is recomputed.</summary>
+    private void TrackGroupLiveness(WorkspaceViewModel ws)
+    {
+        foreach (var g in GroupsFor(ws))
+        {
+            string key = GroupKey(ws, g.Id);
+            if (ConnectorsInGroup(ws, g).Count > 0)
+            {
+                _groupSeen.Add(key);
+                _groupGoneAt.Remove(key);
+            }
+            else if (_groupSeen.Contains(key) && !_groupGoneAt.ContainsKey(key))
+                _groupGoneAt[key] = DateTime.Now;
+        }
+    }
+
     /// <summary>How the deck asks the extension to close a `replaced` session's dead tab:
     /// at most this many times, this far apart. Each ask reveals the tab first (Claude Code's
     /// id→panel registry is the only thing that can tell the dead tab from a live one with
@@ -831,7 +862,39 @@ public partial class MainWindow : Window
             bool windowDied = !connected && ws.WindowGoneAt != null;
             foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom).ToList())
             {
-                bool candidate = !connected || (tabsAuthoritative && Correlatable(s) && !s.OpenAsTab);
+                // A card is a FOLDER and its sessions are spread across that folder's windows,
+                // so "some window of this card is connected" says nothing about the one this
+                // session lives in. The union cannot speak for a session whose own instance is
+                // not reporting — its tabs are simply not in it, and every one of its sessions
+                // then looks tabless at once.
+                //
+                // Measured 12-09-2026 at 20:28:53, twenty-four seconds after a deck restart: the
+                // orange instance had not finished reconnecting while purple, green and the
+                // SessionDeck window had, so a manual ↻ swept the union of three windows and
+                // closed SEVEN live orange cards in forty milliseconds. Shay saw it as his whole
+                // orange group vanishing. The same shape as 05-09, where the green instance going
+                // down took seven sessions with it — the lesson was recorded then and the sweep
+                // was never taught it.
+                //
+                // A session with no group keeps the old behaviour: there is nothing better to
+                // ask, and an unstamped session is usually one the deck saw before groups existed.
+                // Three states, and the whole bug was collapsing them into two. Its window
+                // REPORTS: the union speaks for it. Its window is GONE, having been seen: that is
+                // the dead-window shape, one level down, and it closes on DeadWindowTtl. Its
+                // window is UNKNOWN — never yet watched connect: nothing may be concluded at all.
+                bool grouped = s.GroupId.Length > 0 &&
+                               GroupsFor(ws).Any(g => g.Id == s.GroupId);
+                string gkey = grouped ? GroupKey(ws, s.GroupId) : "";
+                bool ownWindowReports = !grouped || ConnectorsInGroup(ws,
+                    GroupsFor(ws).First(g => g.Id == s.GroupId)).Count > 0;
+                bool groupDied = !ownWindowReports && _groupGoneAt.ContainsKey(gkey);
+                bool groupUnknown = !ownWindowReports && !groupDied;
+                // Only while the CARD is connected: with no connector at all the card-level
+                // WindowGoneAt is the evidence and it is unchanged by any of this.
+                if (groupUnknown && connected) { s.OrphanSince = null; continue; }
+                bool candidate = !connected || groupDied
+                                 || (tabsAuthoritative && ownWindowReports
+                                     && Correlatable(s) && !s.OpenAsTab);
                 if (!candidate)
                 {
                     s.OrphanSince = null;
@@ -852,7 +915,11 @@ public partial class MainWindow : Window
                 // it waits a minute instead of a quarter of an hour — and its silence guard is
                 // the right one too: not "quiet for fifteen minutes", but "has said nothing
                 // since its tab went", which is the actual question.
-                bool tabClosed = connected && !replaced && s.TabGoneAt is { } gone
+                // A group that died is the dead-window shape for the sessions inside it: the
+                // process hosting them has exited, so it takes DeadWindowTtl and drops the
+                // silence guard for the same reason the card-level one does.
+                bool hostDied = windowDied || groupDied;
+                bool tabClosed = connected && !replaced && !hostDied && s.TabGoneAt is { } gone
                                  && LastActivity(s) <= gone;
                 // "No tab answers to this session" only means the session has no tab when every
                 // tab already has an owner. While one is unexplained, that tab might be its, and
@@ -869,7 +936,7 @@ public partial class MainWindow : Window
                 // tab label the deck can never match (measured twice on 12-09: 826bbe09 and
                 // af317457, both with tab labels that appear in no transcript on this machine):
                 // its card will not retire itself, and ↻ is how it goes.
-                if (!force && connected && !replaced && !tabClosed && ws.UnexplainedTabs > 0)
+                if (!force && connected && !replaced && !tabClosed && !hostDied && ws.UnexplainedTabs > 0)
                 {
                     s.OrphanSince = null;
                     continue;
@@ -878,7 +945,7 @@ public partial class MainWindow : Window
                 // third — a card that never had a VSCode window at all — has none, so its guard
                 // stands even here: a terminal session or a headless run must not be swept away
                 // by a button press. ManualReconcileGrace covers the label-lag on the first.
-                bool skipWait = force && (windowDied || replaced ||
+                bool skipWait = force && (hostDied || replaced ||
                                           (connected && DateTime.Now - LastActivity(s) >= ManualReconcileGrace));
                 if (!skipWait)
                 {
@@ -891,7 +958,7 @@ public partial class MainWindow : Window
                     // Counting from a sweep costs one extra 10s tick and cannot be fooled by a
                     // clock that jumped.
                     s.OrphanSince ??= DateTime.Now;
-                    var ttl = replaced ? ReplacedTtl : windowDied ? DeadWindowTtl
+                    var ttl = replaced ? ReplacedTtl : hostDied ? DeadWindowTtl
                               : tabClosed ? TabClosedTtl : OrphanSessionTtl;
                     // A witnessed tab close runs its own clock from the moment it was seen, not
                     // from whenever this sweep first called the session a candidate — the two
@@ -903,13 +970,14 @@ public partial class MainWindow : Window
                     // The silence guard is the part the dead-window shape drops: a resume fired
                     // on the way out makes recent noise a LIAR about whether anyone is home.
                     // `tabClosed` has already applied the sharper version of it above.
-                    if (!windowDied && !replaced && !tabClosed &&
+                    if (!hostDied && !replaced && !tabClosed &&
                         DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
                 }
                 // Which of the shapes fired, and against what — "ended (orphaned)" alone
                 // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
                 LogService.Info("status", $"session={s.SessionId} {(replaced ? "replaced" : "orphan")} close ws=\"{ws.DisplayTitle}\" " +
                     (tabClosed ? $"its tab \"{s.MatchedTabLabel}\" closed at {s.TabGoneAt:HH:mm:ss} and it has said nothing since"
+                     : groupDied ? $"its \"{s.GroupId}\" window closed at {_groupGoneAt[gkey]:HH:mm:ss}"
                      : connected ? $"no tab matched tabs=[{string.Join(" | ", ws.ClaudeTabLabels)}]"
                      : windowDied ? $"its VSCode window closed at {ws.WindowGoneAt:HH:mm:ss}"
                      : "no VSCode window"));
@@ -3227,6 +3295,7 @@ public partial class MainWindow : Window
             ws.ConnectorsChangedAt = DateTime.Now;
             foreach (var s in ws.Sessions) s.TabGoneAt = null;
         }
+        TrackGroupLiveness(ws);
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
         return labels;
