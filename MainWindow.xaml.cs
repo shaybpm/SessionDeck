@@ -585,6 +585,11 @@ public partial class MainWindow : Window
             RefreshMetadata(ws);
         RefreshTranscriptTitles();
         RefreshPhantomSessions();
+        // Re-correlate before sweeping. The sweep now reads ws.UnexplainedTabs, which this is
+        // what computes, and it must be this tick's answer rather than whenever the last
+        // connector happened to sync — an unfocused window reports less often than the sweep
+        // runs, and a stale count is a decision made on someone else's evidence.
+        foreach (var ws in Vm.Workspaces) ReapplyTabCorrelation(ws);
         RefreshOrphanSessions();
         // A permission dialog freezes the transcript, so the scan above may find nothing
         // new — the threshold still has to be re-checked against the stored pending call.
@@ -849,6 +854,26 @@ public partial class MainWindow : Window
                 // since its tab went", which is the actual question.
                 bool tabClosed = connected && !replaced && s.TabGoneAt is { } gone
                                  && LastActivity(s) <= gone;
+                // "No tab answers to this session" only means the session has no tab when every
+                // tab already has an owner. While one is unexplained, that tab might be its, and
+                // the deck is not entitled to close the card on a guess (Shay chose this
+                // trade-off explicitly, 12-09-2026, after the fourth live card lost in two days:
+                // a card left standing costs him one press of ↻, a card lost costs him a second
+                // live session on the same topic, which has already happened).
+                //
+                // It does not weaken the cleanup the way it first looks. The 17 dead sessions
+                // that piled up on ".claude" on 03-09-2026 shared ONE surviving tab: the live
+                // session takes it, nothing is left unexplained, and all 17 still close. And the
+                // ordinary case — a tab that closes while the deck is watching — is now the
+                // witness's job, which this does not touch. What it gives up is the session whose
+                // tab label the deck can never match (measured twice on 12-09: 826bbe09 and
+                // af317457, both with tab labels that appear in no transcript on this machine):
+                // its card will not retire itself, and ↻ is how it goes.
+                if (!force && connected && !replaced && !tabClosed && ws.UnexplainedTabs > 0)
+                {
+                    s.OrphanSince = null;
+                    continue;
+                }
                 // A manual reconcile skips the wait on the two shapes that have evidence. The
                 // third — a card that never had a VSCode window at all — has none, so its guard
                 // stands even here: a terminal session or a headless run must not be swept away
@@ -2697,6 +2722,14 @@ public partial class MainWindow : Window
             s.OpenAsTab = matched != null;
             if (matched != null) s.MatchedTabLabel = matched;
         }
+
+        // What is still unaccounted for once both passes have had their say. A tab a CLOSED
+        // session answers to is explained — it is that session's leftover, and the sweep may
+        // go on reasoning about the live ones. A tab nobody at all answers to is the deck
+        // failing to identify its owner, and that is the case below.
+        ws.UnexplainedTabs = remaining.Where(kv => kv.Value > 0)
+            .Where(kv => !ws.Sessions.Any(s => s.Closed && MatchTabLabel(kv.Key, s) != null))
+            .Sum(kv => kv.Value);
 
         WitnessClosedTabs(ws);
 

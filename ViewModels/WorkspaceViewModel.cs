@@ -217,6 +217,13 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// prevent. Runtime only.</summary>
     public DateTime ConnectorsChangedAt { get; set; } = DateTime.MinValue;
 
+    /// <summary>Claude tabs no session answers for: not taken by an open session, and not
+    /// matching a closed one either (a dead session's leftover tab is explained, so it does not
+    /// count). Recomputed by ReapplyTabCorrelation. While this is above zero the orphan sweep
+    /// cannot PROVE any particular session is tabless, because one of these might be its —
+    /// see RefreshOrphanSessions. Runtime only.</summary>
+    public int UnexplainedTabs { get; set; }
+
     // ---- live window binding (engine reuse from stage A/B) ----
 
     private IntPtr _hwnd;
