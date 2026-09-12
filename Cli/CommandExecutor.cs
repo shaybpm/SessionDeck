@@ -18,7 +18,7 @@ public sealed class CommandExecutor
         "match", "desc", "color", "monitor", "half", "quarter", "custom", "size", "rect", "title",
         "id", "workspace", "state", "path",
         "detail", "transcript", "source", "mode", "reason", "debug", "file", "agents", "entrypoint",
-        "prompt", "page", "view", "dispatcher", "group", "after", "tasks",
+        "prompt", "page", "view", "dispatcher", "group", "after", "tasks", "pid",
     };
 
     private readonly MainWindow _window;
@@ -576,6 +576,9 @@ public sealed class CommandExecutor
         Entrypoint: a.Options.GetValueOrDefault("entrypoint"),
         PrintMode: a.Flags.Contains("print-mode"),
         Dispatcher: a.Options.GetValueOrDefault("dispatcher"),
+        // The CLI process that fired this event. One session id should have exactly one; two
+        // of them alternating is the fork detector's whole input (SessionViewModel.NoteHookPid).
+        Pid: int.TryParse(a.Options.GetValueOrDefault("pid"), out int pid) ? pid : null,
         Group: a.Options.GetValueOrDefault("group"));
 
     private (WorkspaceViewModel?, string?) ResolveTarget(ParsedArgs a)
