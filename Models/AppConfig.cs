@@ -241,6 +241,9 @@ public class SessionConfig
     /// even when empty) and the next transcript scan overwrites the monitor ids.</summary>
     public List<string> LiveTaskIds { get; set; } = new();
     public List<string> MonitorTaskIds { get; set; } = new();
+    /// <summary>The other type half, for background jobs. Persisted for the same reason as the
+    /// monitor ids and refilled by the same scan.</summary>
+    public List<string> JobTaskIds { get; set; } = new();
     /// <summary>Which VSCode instance this session was last SEEN running in — the id of the
     /// <see cref="SessionGroupConfig"/> whose window held its tab. "" while unknown.
     ///

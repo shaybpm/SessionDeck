@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -41,6 +41,20 @@ namespace SessionDeck.Services;
 /// status=running), and this says which of those ids was a Monitor. Intersect the two and you
 /// have the watches that are actually live, which is the only form of the question the deck can
 /// answer honestly.</param>
+/// <param name="JobTaskIds">The background-task ids this session launched as backgrounded Bash
+/// JOBS — the same missing half as <paramref name="MonitorTaskIds"/>, for the other kind of
+/// machine work that ends a turn. A job differs from a Monitor in one way that matters to the
+/// person reading the deck: it is computing and it will finish, where a monitor only listens and
+/// what it listens for may never arrive. Both mean the same thing about the card, which is that
+/// the session is waiting on a machine and not on Shay.
+///
+/// What is deliberately NOT here is the reason a background shell counted for nothing until now:
+/// a dev server left up by a session that then genuinely finished with a question would silence
+/// that question forever. So the command text decides — it is in the transcript, keyed by task
+/// id, which the hook payload is not — and a command matching <see cref="ServerCommand"/> is
+/// read as a process nobody is waiting for and counts for nothing, exactly as before. Everything
+/// else backgrounded terminates, and a terminating background task notifies its session, which is
+/// the definition of work that will claim its own turn back.</param>
 public sealed record TranscriptInfo(
     string? TabTitle,
     string? AutoTitle,
@@ -49,7 +63,8 @@ public sealed record TranscriptInfo(
     LostAgents? Lost = null,
     TokenUsage? Tokens = null,
     int ForegroundAgents = 0,
-    IReadOnlyList<string>? MonitorTaskIds = null);
+    IReadOnlyList<string>? MonitorTaskIds = null,
+    IReadOnlyList<string>? JobTaskIds = null);
 
 /// <summary>What a session has spent, tallied from the <c>usage</c> block of every assistant
 /// turn in its transcript.
@@ -219,9 +234,9 @@ public static class TranscriptReader
                 if (Shorten(wrappedFirst) is { } w && !candidates.Contains(w)) candidates.Add(w);
             }
 
-            var (pending, foreground, monitors) = FindPendingCall(tail);
+            var (pending, foreground, monitors, jobs) = FindPendingCall(tail);
             return new TranscriptInfo(tabTitle, autoTitle, pending, candidates, lost,
-                                      tokens.Result(), foreground, monitors);
+                                      tokens.Result(), foreground, monitors, jobs);
         }
         catch
         {
@@ -438,8 +453,10 @@ public static class TranscriptReader
     /// The same walk answers a second question: how many of the still-open calls are Agent
     /// calls, which is the only witness there is to a FOREGROUND subagent (see
     /// TranscriptInfo.ForegroundAgents) — and a third, the background-task ids armed by the
-    /// Monitor tool (see TranscriptInfo.MonitorTaskIds).</summary>
-    private static (PendingCall? Call, int ForegroundAgents, List<string> MonitorTasks)
+    /// Monitor tool (see TranscriptInfo.MonitorTaskIds) or backgrounded as a Bash job (see
+    /// TranscriptInfo.JobTaskIds).</summary>
+    private static (PendingCall? Call, int ForegroundAgents, List<string> MonitorTasks,
+                    List<string> JobTasks)
         FindPendingCall(IEnumerable<string> tail)
     {
         var pending = new Dictionary<string, PendingCall>();
@@ -449,6 +466,13 @@ public static class TranscriptReader
         // carries the task id we are after.
         var toolNames = new Dictionary<string, string>(StringComparer.Ordinal);
         var monitorTasks = new List<string>();
+        // tool_use_id → the command of a Bash call that ran in the background, and the launches
+        // that announced a task id, joined AFTER the walk rather than during it. A tool_use whose
+        // result was already seen is skipped below (`resolved`), so a same-second flush reorder
+        // would lose the command of the very call being classified; and only the join needs both
+        // halves, so nothing is gained by insisting they arrive in order.
+        var bgCommands = new Dictionary<string, string>(StringComparer.Ordinal);
+        var bgLaunches = new List<(string TaskId, string UseId)>();
         // Transcript lines are NOT strictly ordered: a tool_result line can precede its
         // own tool_use line (seen in the wild 2026-07-27 — same-second flush). Matching
         // must therefore be order-insensitive, or the call reads as pending forever and
@@ -485,6 +509,13 @@ public static class TranscriptReader
                             sawToolBlock = true;
                             string? name = block.TryGetProperty("name", out var n) ? n.GetString() : null;
                             string? id = block.TryGetProperty("id", out var i) ? i.GetString() : null;
+                            if (name == "Bash" && id != null &&
+                                block.TryGetProperty("input", out var bin) &&
+                                bin.TryGetProperty("run_in_background", out var bg) &&
+                                bg.ValueKind == JsonValueKind.True &&
+                                bin.TryGetProperty("command", out var bcmd) &&
+                                bcmd.GetString() is { Length: > 0 } bText)
+                                bgCommands[id] = bText;
                             if (name == null || id == null || resolved.Contains(id)) continue;
                             toolNames[id] = name;
                             bool isAsk = AskTools.Contains(name);
@@ -504,6 +535,8 @@ public static class TranscriptReader
                                     ReadMonitorTaskId(block) is { } taskId &&
                                     !monitorTasks.Contains(taskId))
                                     monitorTasks.Add(taskId);
+                                if (ReadBackgroundTaskId(block) is { } bgId)
+                                    bgLaunches.Add((bgId, rId));
                             }
                         }
                     }
@@ -523,10 +556,21 @@ public static class TranscriptReader
         foreach (var p in pending.Values)
             if (p.ToolName == "Agent") agents++;
 
+        // The join. A backgrounded command that terminates notifies its session when it does,
+        // so it is work the session will claim its own turn back from; a server never does, and
+        // is the one shape that must go on counting for nothing.
+        var jobTasks = new List<string>();
+        foreach (var (taskId, useId) in bgLaunches)
+            if (bgCommands.TryGetValue(useId, out var cmd) &&
+                !ServerCommand.IsMatch(cmd) &&
+                !jobTasks.Contains(taskId) &&
+                !monitorTasks.Contains(taskId))
+                jobTasks.Add(taskId);
+
         // Prefer a definitive question over a merely-unfinished tool, then most recent.
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call) && call.IsAsk)
-                return (call, agents, monitorTasks);
+                return (call, agents, monitorTasks, jobTasks);
         for (int i = order.Count - 1; i >= 0; i--)
             if (pending.TryGetValue(order[i], out var call))
             {
@@ -534,9 +578,9 @@ public static class TranscriptReader
                 // likely waiting on its own batch, not on the user — see HasOlderPending.
                 bool older = false;
                 for (int j = 0; j < i && !older; j++) older = pending.ContainsKey(order[j]);
-                return (call with { HasOlderPending = older }, agents, monitorTasks);
+                return (call with { HasOlderPending = older }, agents, monitorTasks, jobTasks);
             }
-        return (null, agents, monitorTasks);
+        return (null, agents, monitorTasks, jobTasks);
     }
 
     /// <summary>The task id out of a Monitor tool_result: "Monitor started (task blosa44ck,
@@ -547,8 +591,17 @@ public static class TranscriptReader
     /// command happens to print can be mistaken for one.</summary>
     private static string? ReadMonitorTaskId(JsonElement block)
     {
+        if (ResultText(block) is not { } text) return null;
+        var m = MonitorTaskPattern.Match(text);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    /// <summary>The text of a tool_result, which the transcript writes either as a bare string
+    /// or as a content array.</summary>
+    private static string? ResultText(JsonElement block)
+    {
         if (!block.TryGetProperty("content", out var content)) return null;
-        string? text = content.ValueKind switch
+        return content.ValueKind switch
         {
             JsonValueKind.String => content.GetString(),
             JsonValueKind.Array => content.EnumerateArray()
@@ -557,14 +610,38 @@ public static class TranscriptReader
                 .FirstOrDefault(x => x is { Length: > 0 }),
             _ => null,
         };
-        if (text == null) return null;
-        var m = MonitorTaskPattern.Match(text);
-        return m.Success ? m.Groups[1].Value : null;
     }
 
     private static readonly Regex MonitorTaskPattern =
         new(@"Monitor started \(task ([A-Za-z0-9_-]+)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>The task id a backgrounded Bash call was given, read from the same tool_result
+    /// that announces it. The launch is the only place the id and the command meet: the Stop
+    /// hook's background_tasks carries the id and a free-text description, never the command,
+    /// which is why the deck could not tell a deploy run from a dev server without this.</summary>
+    private static string? ReadBackgroundTaskId(JsonElement block)
+    {
+        if (ResultText(block) is not { } text) return null;
+        var m = BackgroundTaskPattern.Match(text);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private static readonly Regex BackgroundTaskPattern =
+        new(@"[Cc]ommand running in background with ID: ([A-Za-z0-9_-]+)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>A backgrounded command that is expected to run until something kills it, rather
+    /// than to finish and wake its session. The narrow exclusion list is the whole safety margin
+    /// of counting background jobs at all, so it stays a list of shapes that genuinely never
+    /// return — a dev server, a watcher, a follow — and never widens into "long-running".
+    /// A command that is merely slow is exactly the case the card is meant to cover.</summary>
+    private static readonly Regex ServerCommand =
+        new(@"\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b" +
+            @"|\bnext\s+dev\b|\bnodemon\b|\bvite\b(?!\s+build)|\bwebpack(-dev)?-server\b" +
+            @"|\bhttp-server\b|\bserve\b\s|\brun-dev-instance\b|\bdotnet\s+watch\b" +
+            @"|\btail\s+(-[A-Za-z]*f|--follow)\b|--watch\b|\bGet-Content\b[^|]*-Wait\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>Card text for a pending question: the question itself when available.</summary>
     private static string AskDetail(string toolName, JsonElement block)

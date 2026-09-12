@@ -167,6 +167,25 @@ between them:
    alarm for another: a session that leaves a dev server up and then genuinely finishes with a
    question would never claim his turn again.
 
+6. **A live background JOB, found the same way** (this fork, v0.9.95) - the other half of item 5,
+   and the half that was measured missing. The rule above was right about the danger and too wide
+   about the remedy: what must never silence a real question is a command that never RETURNS, not
+   every backgrounded command. So the classification moved to the command TEXT, which only the
+   transcript has - the launch's `tool_result` announces the task id and its own `tool_use`
+   carries the command - and `ActiveJobs` intersects that with the hook's live shell ids exactly
+   as `ActiveWatches` does. `TranscriptReader.ServerCommand` is the whole safety margin:
+   `npm run dev`, `nodemon`, `tail -f`, `dotnet watch`, `--watch` and friends still attribute to
+   nothing and their cards behave exactly as before. Everything else backgrounded terminates, and
+   a terminating background task notifies its session, which is the definition of work that will
+   claim its own turn back. Its own GEAR chip rather than a second SATELLITE, by the argument the
+   wave got one: a monitor listens for something that may never arrive, a job is computing and
+   will finish, and which is out decides whether waiting for that card is worth anything.
+   **Measured 12-09-2026**, on Shay's own report of two cards in one evening: session 8a6cf03c
+   (topic session #6.0) sat purple "your turn" with a backgrounded `bpm-deploy -Phase prep` run
+   and a wait loop still going, and c836d168 (Hourly cost) with a push-and-prep run - `jobs 0 to 2`
+   and `jobs 0 to 1` on the first scan after the fix, cards reading `2 jobs running` and
+   `job running`.
+
 **A `SessionStart` is not always a fresh start.** Clicking a card makes the deck send an open
 command, VSCode answers with `SessionStart source=resume`, and `StartSession` used to reset any
 known session to `idle` silently — so looking at a session destroyed the state you clicked to
