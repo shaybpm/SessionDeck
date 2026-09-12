@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using SessionDeck.Models;
@@ -133,6 +133,20 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// title-drift window can't kill a live session. Reset by any hook event
     /// (ApplyHookInfo) and whenever the condition clears. Runtime only.</summary>
     public DateTime? OrphanSince { get; set; }
+
+    /// <summary>When this session's own tab was WATCHED leaving VSCode — the exact label it
+    /// was matched against left the tab union while the same windows stayed connected. That
+    /// is a different claim from "no tab answers to its titles", and a much stronger one: it
+    /// cannot be produced by a label-match failure, because the string being looked for is
+    /// the one the tab itself was showing a moment earlier. The orphan sweep gives this shape
+    /// its own short TTL, so a card stops outliving the tab the user closed by a quarter of
+    /// an hour. Cleared by any hook event and whenever the tab comes back. Runtime only.</summary>
+    public DateTime? TabGoneAt { get; set; }
+
+    /// <summary>The deck itself resumed this session in a TERMINAL (see OpenSessionInVscode).
+    /// Such a session legitimately lives with no tab of its own, so the tab witness above
+    /// must not be read as death for it. Runtime only.</summary>
+    public bool ResumedInTerminal { get; set; }
 
     /// <summary>How many times the deck has asked the extension to close this `replaced`
     /// session's dead tab, and when it last did. Bounded so a window whose extension cannot

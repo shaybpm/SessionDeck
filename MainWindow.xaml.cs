@@ -705,6 +705,21 @@ public partial class MainWindow : Window
     /// it. Counted in swept time like the others.</summary>
     private static readonly TimeSpan ReplacedTtl = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long a session waits after its own tab was WATCHED closing (SessionViewModel
+    /// .TabGoneAt) before the card goes. OrphanSessionTtl is fifteen minutes because "no tab
+    /// answers to its titles" is a claim about MATCHING, and matching is what fails — a wrong
+    /// spelling or a late ai-title has twice made a live session look tabless. This shape makes
+    /// no such claim: the deck saw the tab's own label in the union and then saw it leave, with
+    /// the same windows connected throughout, so there is nothing left to be wrong about except
+    /// whether the session is still alive somewhere else — and the silence guard answers that.
+    ///
+    /// Measured 12-09-2026, which is why this exists: Shay closed the Hourly-Cost tab in the
+    /// purple window at 10:31:56 and opened its successor in orange ten seconds later. Closing a
+    /// Claude tab fires no SessionEnd, so the dead card sat on the deck for the next ten minutes
+    /// — and every click he spent on it resumed it in a terminal (below), which restarted both
+    /// clocks and made it outlive each attempt to deal with it.</summary>
+    private static readonly TimeSpan TabClosedTtl = TimeSpan.FromSeconds(60);
+
     /// <summary>How the deck asks the extension to close a `replaced` session's dead tab:
     /// at most this many times, this far apart. Each ask reveals the tab first (Claude Code's
     /// id→panel registry is the only thing that can tell the dead tab from a live one with
@@ -823,6 +838,13 @@ public partial class MainWindow : Window
                 // that might still be alive; this one cannot be, so it waits only ReplacedTtl and
                 // skips the silence guard — its own `replaced` mark IS its last event, seconds ago.
                 bool replaced = s.Status == SessionStatus.Replaced;
+                // The tab this session was matched to was seen leaving VSCode while its windows
+                // stayed put (WitnessClosedTabs). Nothing about that rests on a label match, so
+                // it waits a minute instead of a quarter of an hour — and its silence guard is
+                // the right one too: not "quiet for fifteen minutes", but "has said nothing
+                // since its tab went", which is the actual question.
+                bool tabClosed = connected && !replaced && s.TabGoneAt is { } gone
+                                 && LastActivity(s) <= gone;
                 // A manual reconcile skips the wait on the two shapes that have evidence. The
                 // third — a card that never had a VSCode window at all — has none, so its guard
                 // stands even here: a terminal session or a headless run must not be swept away
@@ -840,16 +862,26 @@ public partial class MainWindow : Window
                     // Counting from a sweep costs one extra 10s tick and cannot be fooled by a
                     // clock that jumped.
                     s.OrphanSince ??= DateTime.Now;
-                    var ttl = replaced ? ReplacedTtl : windowDied ? DeadWindowTtl : OrphanSessionTtl;
-                    if (DateTime.Now - s.OrphanSince < ttl) continue;
+                    var ttl = replaced ? ReplacedTtl : windowDied ? DeadWindowTtl
+                              : tabClosed ? TabClosedTtl : OrphanSessionTtl;
+                    // A witnessed tab close runs its own clock from the moment it was seen, not
+                    // from whenever this sweep first called the session a candidate — the two
+                    // are the same here, but OrphanSince is also reset by conditions that have
+                    // nothing to do with the tab, and restarting a minute on one of those is how
+                    // a card would go back to lingering.
+                    var since = tabClosed ? s.TabGoneAt!.Value : s.OrphanSince!.Value;
+                    if (DateTime.Now - since < ttl) continue;
                     // The silence guard is the part the dead-window shape drops: a resume fired
                     // on the way out makes recent noise a LIAR about whether anyone is home.
-                    if (!windowDied && !replaced && DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
+                    // `tabClosed` has already applied the sharper version of it above.
+                    if (!windowDied && !replaced && !tabClosed &&
+                        DateTime.Now - LastActivity(s) < OrphanSessionTtl) continue;
                 }
                 // Which of the shapes fired, and against what — "ended (orphaned)" alone
                 // can't tell a dead window from a tab label we failed to match (issue 2026-08-16).
                 LogService.Info("status", $"session={s.SessionId} {(replaced ? "replaced" : "orphan")} close ws=\"{ws.DisplayTitle}\" " +
-                    (connected ? $"no tab matched tabs=[{string.Join(" | ", ws.ClaudeTabLabels)}]"
+                    (tabClosed ? $"its tab \"{s.MatchedTabLabel}\" closed at {s.TabGoneAt:HH:mm:ss} and it has said nothing since"
+                     : connected ? $"no tab matched tabs=[{string.Join(" | ", ws.ClaudeTabLabels)}]"
                      : windowDied ? $"its VSCode window closed at {ws.WindowGoneAt:HH:mm:ss}"
                      : "no VSCode window"));
                 EndSession(s.SessionId, new HookInfo(Reason: replaced ? "replaced" : "orphaned"));
@@ -1837,6 +1869,7 @@ public partial class MainWindow : Window
     {
         session.LastEventAt = DateTime.Now;
         session.OrphanSince = null;   // any hook event is proof of life — restart the orphan clock
+        session.TabGoneAt = null;     // ...and it speaks for the tab witness too: it is alive somewhere
         if (info.Detail != null && !IsMachineWakeup(info.Detail)) session.Detail = Sanitize(info.Detail);
         if (info.Transcript != null) session.TranscriptPath = info.Transcript;
         if (info.Source != null) session.Source = info.Source;
@@ -2519,7 +2552,8 @@ public partial class MainWindow : Window
         ws.SetClaudeTabs(new List<string>());
         ws.ActiveClaudeTabLabel = null;
         ws.WindowGoneAt = DateTime.Now;
-        foreach (var s in ws.Sessions) s.OpenAsTab = false;
+        ws.ConnectorSignature = "";
+        foreach (var s in ws.Sessions) { s.OpenAsTab = false; s.TabGoneAt = null; }
     }
 
     /// <summary>VSCode truncates long tab labels with a trailing '…' (bug 2026-07-19) —
@@ -2657,6 +2691,8 @@ public partial class MainWindow : Window
             if (matched != null) s.MatchedTabLabel = matched;
         }
 
+        WitnessClosedTabs(ws);
+
         if (RefreshEndedTabs(ws)) ws.RefreshSessionVisibility();
 
         // Auto-acknowledge the session whose tab the user is looking at.
@@ -2666,6 +2702,39 @@ public partial class MainWindow : Window
                                $" match=\"{(active != null ? MatchTabLabel(active, target) : null)}\"");
         target.Acknowledged = true;
         return true;
+    }
+
+    /// <summary>Note which open sessions have just LOST the tab they were matched to, while
+    /// the same windows went on reporting (ConnectorSignature). This is the one piece of
+    /// evidence the deck had and never used, and it answers the question the orphan sweep is
+    /// otherwise forced to guess at.
+    ///
+    /// The distinction is the whole point. "No tab answers to this session's titles" is a
+    /// statement about string matching, and string matching is what breaks: a tab keeps the
+    /// spelling it was born with while the session is retitled, and a live card has twice been
+    /// closed on it. "The exact label this session's tab was showing is no longer in the list"
+    /// cannot break that way — the string came from the tab itself. So this shape is allowed to
+    /// act in a minute where the other waits fifteen.
+    ///
+    /// A session the deck resumed in a terminal is exempt: it has no tab BY CONSTRUCTION, and
+    /// its last one closing is not news about whether it is alive.</summary>
+    private static void WitnessClosedTabs(WorkspaceViewModel ws)
+    {
+        foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom))
+        {
+            if (s.OpenAsTab || s.ResumedInTerminal || s.MatchedTabLabel is not { Length: > 0 } label)
+            { s.TabGoneAt = null; continue; }
+            // Matched against the union rather than against OpenAsTab: two sessions can answer
+            // to one label, and correlation hands the tab to whichever has capacity for it.
+            // Losing that contest is not the tab closing, and must not be read as one.
+            if (ws.ClaudeTabLabels.Any(t => TabLabelMatches(t, label))) { s.TabGoneAt = null; continue; }
+            if (s.TabGoneAt == null)
+            {
+                s.TabGoneAt = DateTime.Now;
+                LogService.Info("status", $"session={s.SessionId} its tab \"{label}\" left VSCode " +
+                                          $"ws=\"{ws.DisplayTitle}\" — closing the card in {TabClosedTtl.TotalSeconds:0}s unless it speaks");
+            }
+        }
     }
 
     /// <summary>Mark the closed session behind a Claude tab that is still open, so the card
@@ -3056,6 +3125,16 @@ public partial class MainWindow : Window
         var labels = conns.GroupBy(c => c.Pid).Select(g => g.Last())
                           .SelectMany(c => c.Tabs).Select(t => t.Label).ToList();
         ws.SetClaudeTabs(labels);
+        // A tab leaving the union means the user closed it ONLY while the same windows are
+        // still reporting. A window that reloads, connects or drops takes its whole tab list
+        // out in one go, and every session in it would look closed in the same second — so a
+        // change of signature throws the witness away rather than reading it.
+        string signature = string.Join(",", conns.Select(c => c.Pid).OrderBy(p => p));
+        if (signature != ws.ConnectorSignature)
+        {
+            ws.ConnectorSignature = signature;
+            foreach (var s in ws.Sessions) s.TabGoneAt = null;
+        }
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();
         ws.ActiveClaudeTabLabel = focused?.Tabs.FirstOrDefault(t => t.Active)?.Label;
         return labels;
@@ -3093,6 +3172,21 @@ public partial class MainWindow : Window
         // two of the seven sessions recovered from the dead green instance came back empty, and
         // both resumed first try from a terminal).
         bool tabIsHere = ConnectorsFor(ws).Any(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)));
+        // ...unless the deck WATCHED that tab close (WitnessClosedTabs). Then the session is not
+        // a recovery case at all: its window is right here, and the tab is gone because the user
+        // closed it. Resuming is the wrong answer twice over — it brings back a session he
+        // finished with, and the resume's own SessionStart restarts every clock that would have
+        // retired the card, so the ghost survives each click he spends on it. Measured 12-09-2026
+        // on Hourly-Cost: closed in purple at 10:31:56, replaced in orange ten seconds later, and
+        // resumed from the deck at 10:41:42 and again at 10:42:01 without either click being
+        // asked for. The card retires itself within TabClosedTtl, so say that and stop.
+        if (!tabIsHere && session.TabGoneAt is { } gone && !session.ResumedInTerminal)
+        {
+            LogService.Info("route", $"session={session.SessionId} NOT resumed — its tab " +
+                                     $"\"{session.MatchedTabLabel}\" was closed at {gone:HH:mm:ss}");
+            return (false, $"\"{session.DisplayTitle}\" ended when you closed its tab at {gone:HH:mm} — " +
+                           "not resumed, because resuming would start it up again. The card clears itself shortly.");
+        }
         bool viaTerminal = !tabIsHere && conn.SupportsTerminalResume;
         if (!tabIsHere && !conn.SupportsTerminalResume)
             LogService.Info("route", $"session={session.SessionId} has no tab here and the window's " +
@@ -3105,7 +3199,12 @@ public partial class MainWindow : Window
             return (false, "connector connection lost");
         }
         if (viaTerminal)
+        {
+            // It will live with no tab of its own from here on, so the tab witness must stop
+            // reading "no tab" as death for it.
+            session.ResumedInTerminal = true;
             LogService.Info("route", $"session={session.SessionId} → terminal resume (no tab in its window)");
+        }
         return (true, "");
     }
 

@@ -200,6 +200,13 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// the second proves nothing, so only the first earns the fast orphan close.</summary>
     public DateTime? WindowGoneAt { get; set; }
 
+    /// <summary>Which VSCode processes were connected the last time the tab union was
+    /// recomputed, as a stable signature. A tab vanishing only means the user closed it while
+    /// the SAME windows are still there; a window reloading, connecting or disconnecting
+    /// takes a whole instance's tabs out of the union at once, which would otherwise read as
+    /// every session in it losing its tab in the same second. Runtime only.</summary>
+    public string ConnectorSignature { get; set; } = "";
+
     // ---- live window binding (engine reuse from stage A/B) ----
 
     private IntPtr _hwnd;
