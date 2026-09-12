@@ -92,6 +92,7 @@ feature that can be removed without touching the engine.
 | `AttentionNotifier.cs` | Balloon, taskbar overlay badge, flash. |
 | `WindowTracker.cs` / `WindowEnumerator.cs` / `WindowActions.cs` | `SetWinEventHook` (no polling), candidate enumeration, focus/move/close. |
 | `TasksFileService.cs` / `TasksFileWatcher.cs` | The external tasks JSON, read-only, reloaded within ~1s of a change. |
+| `QuotaReader.cs` | How full each Claude wallet is, read off the file `ClaudeCode-QuotaWatch` writes every 5 minutes. Read-only, and silent rather than wrong: no file, a stale snapshot or an unavailable account all show nothing. The card-header pill is `WorkspaceViewModel.ApplyQuota`, fed by `RefreshWalletReadings` on the 10s metadata tick. |
 | `LogService.cs` | The diagnostic log. Read it before theorising about a status bug. |
 | `ColorUtil.cs` | Named colours and `#RRGGBB`. Shared by cards, borders and the badge. |
 
