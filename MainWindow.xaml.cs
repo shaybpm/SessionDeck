@@ -2943,10 +2943,12 @@ public partial class MainWindow : Window
     /// would have to rest on.</summary>
     private static void LogEliminationShape(WorkspaceViewModel ws, int tabs, int sessions)
     {
-        if (tabs == 0 && sessions == 0) { _eliminationShape.Remove(ws.Id); return; }
         string shape = $"{tabs}:{sessions}";
         if (_eliminationShape.TryGetValue(ws.Id, out var last) && last == shape) return;
+        // Remembered even when it is not worth a line, so a card that keeps falling back to
+        // "nothing here at all" does not re-log its next real shape every few seconds.
         _eliminationShape[ws.Id] = shape;
+        if (tabs == 0 && sessions == 0) return;
         LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" elimination shape {tabs} unowned tab(s) " +
                                      $"vs {sessions} tabless session(s) — " +
                                      (sessions == 0 ? "nothing to claim"
