@@ -317,6 +317,15 @@ answers to is explained and does not block anything, which is why the 17 dead se
 nothing is left over. What it gives up is the session whose label the deck can never match:
 its card will not retire itself.
 
+**The click path takes the same rule (v0.9.93), and it is the half that bites harder.** CLAUDE.md
+has always named two things resting on `no tab matched`, and only one of them was fixed by the
+sweep guard: twenty minutes after v0.9.92 shipped, at 20:25:47, Shay clicked af317457 — whose tab
+`דף צריכת הטוקנים` was open in that very window — and the deck ran `claude --resume` in a terminal
+against it. Nothing in the witness path applied, because that tab was never MATCHED, so it never
+LEFT anything. `viaTerminal` now also requires `ws.UnexplainedTabs == 0`; short of that the click
+reveals instead, which is the right fallback and always was, since Claude Code's own id→panel
+registry is the one thing that can find a tab a label cannot.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
