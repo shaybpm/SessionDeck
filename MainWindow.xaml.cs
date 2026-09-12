@@ -2898,6 +2898,13 @@ public partial class MainWindow : Window
     /// same topic. Reopening it is his call and wants the measurement below first, which is why
     /// the shape is logged on every change instead of being passed over in silence.
     ///
+    /// That trade-off is real in only ONE of the two shapes hiding inside "fewer tabs than
+    /// sessions", and which one is not visible from K and M — see LogEliminationShape, which
+    /// now reports the split. While any unowned tab is unexplained the sweep is already blocked
+    /// for every session on the card, so there is nothing to buy and only the guard to lose;
+    /// once every leftover is explained, the sweep is free and a claim is the only protection
+    /// going. A widening that does not distinguish them gets the dangerous half for free.
+    ///
     /// A LABEL is still adopted only on the single pair, where there is nothing to guess: with
     /// two of each, the session is known to have a tab but not which one, and a wrong
     /// MatchedTabLabel would put a wrong title on the card and aim WitnessClosedTabs at the
@@ -2916,7 +2923,7 @@ public partial class MainWindow : Window
         var orphaned = ws.Sessions.Where(s => !s.Closed && !s.Phantom && !s.OpenAsTab && !s.PrintMode
                                               && s.Status != SessionStatus.Replaced && Correlatable(s))
                                   .ToList();
-        LogEliminationShape(ws, unclaimed.Count, orphaned.Count);
+        LogEliminationShape(ws, unclaimed, orphaned);
         if (orphaned.Count == 0 || unclaimed.Count < orphaned.Count) return;
 
         // Only the single pair is an identification; anything wider is a headcount.
@@ -2940,20 +2947,59 @@ public partial class MainWindow : Window
     /// above used to be a silent `return`, so how often each shape actually occurs — and in
     /// particular how often there are FEWER tabs than sessions, the case deliberately left
     /// alone — was not answerable from the log. It is the measurement any further widening
-    /// would have to rest on.</summary>
-    private static void LogEliminationShape(WorkspaceViewModel ws, int tabs, int sessions)
+    /// would have to rest on.
+    ///
+    /// **The unowned count is not the number the sweep reads, and that is the whole difficulty**
+    /// (#4.13.46, 13-09-2026). `ws.UnexplainedTabs` is computed from this same `remaining` but
+    /// drops every tab a CLOSED session answers to, so it can be zero while this is not — and
+    /// that difference splits "fewer tabs than sessions" into two cases whose answers are
+    /// OPPOSITE:
+    ///
+    /// - **Some unowned tab is unexplained.** The sweep's own guard already refuses to close any
+    ///   session on the card, so all M are protected exactly as if each had been claimed.
+    ///   Claiming K of them would drop UnexplainedTabs to zero and RELEASE the guard on the
+    ///   other M-K. Pure loss: it protects nobody who is not already protected, and exposes the
+    ///   rest.
+    /// - **Every unowned tab is a closed session's leftover.** UnexplainedTabs is already zero,
+    ///   the guard is not holding, and all M are exposed right now. Claiming K of them is the
+    ///   only thing that would protect anybody. Pure gain.
+    ///
+    /// A line that reports only K and M cannot tell those apart, so the old one could not settle
+    /// the question it was added for. It reports the split now, and names the sessions left
+    /// exposed so a later reading can check whether any of them was still alive.
+    ///
+    /// The `unsettled` mark is the other half of making this countable: a connector that
+    /// reloads, connects or drops takes a whole window's tabs out of the union at once, so the
+    /// seconds after a deck start read as every session on the card losing its tab. Six of the
+    /// eight left-alone lines in the first half-hour of v0.9.96 were that and nothing else.
+    /// Marked rather than suppressed — the shape is real, it just is not evidence — and the mark
+    /// is part of the dedup key, so a shape that outlives the grace says so on its own line.</summary>
+    private static void LogEliminationShape(WorkspaceViewModel ws, List<string> unclaimed,
+                                            List<SessionViewModel> orphaned)
     {
-        string shape = $"{tabs}:{sessions}";
+        int tabs = unclaimed.Count, sessions = orphaned.Count;
+        int unexplained = unclaimed.Count(l => !ws.Sessions.Any(s => s.Closed && MatchTabLabel(l, s) != null));
+        bool settled = DateTime.Now - ws.ConnectorsChangedAt >= TabsSettleGrace;
+        string shape = $"{tabs}:{sessions}:{unexplained}:{settled}";
         if (_eliminationShape.TryGetValue(ws.Id, out var last) && last == shape) return;
         // Remembered even when it is not worth a line, so a card that keeps falling back to
         // "nothing here at all" does not re-log its next real shape every few seconds.
         _eliminationShape[ws.Id] = shape;
         if (tabs == 0 && sessions == 0) return;
+        string verdict = sessions == 0 ? "nothing to claim"
+                         : tabs < sessions ? "fewer tabs than sessions, left alone"
+                         : tabs == 1 ? "the single pair" : "headcount claim";
+        // Only the left-alone case is under measurement, and only it needs the detail. With no
+        // unowned tab at all there is nothing a widening could hand out, so that shape decides
+        // nothing however often it occurs.
+        string detail = tabs > 0 && tabs < sessions
+            ? $"; {unexplained} of {tabs} unexplained, sweep " +
+              (unexplained > 0 ? $"blocked for all {sessions}" : "free already") +
+              $" [{string.Join(", ", orphaned.Select(s => s.SessionId[..8]))}]"
+            : "";
         LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" elimination shape {tabs} unowned tab(s) " +
-                                     $"vs {sessions} tabless session(s) — " +
-                                     (sessions == 0 ? "nothing to claim"
-                                      : tabs < sessions ? "fewer tabs than sessions, left alone"
-                                      : tabs == 1 ? "the single pair" : "headcount claim"));
+                                     $"vs {sessions} tabless session(s) — {verdict}{detail}" +
+                                     (settled ? "" : " (unsettled — connectors still moving)"));
     }
 
     /// <summary>Name the sessions a headcount claim covered. Without it the log would show a card
