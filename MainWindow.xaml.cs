@@ -720,6 +720,10 @@ public partial class MainWindow : Window
     /// clocks and made it outlive each attempt to deal with it.</summary>
     private static readonly TimeSpan TabClosedTtl = TimeSpan.FromSeconds(60);
 
+    /// <summary>How long after the connector set last moved before a vanished tab means
+    /// anything. See WorkspaceViewModel.ConnectorsChangedAt for what this is paying for.</summary>
+    private static readonly TimeSpan TabsSettleGrace = TimeSpan.FromSeconds(10);
+
     /// <summary>How the deck asks the extension to close a `replaced` session's dead tab:
     /// at most this many times, this far apart. Each ask reveals the tab first (Claude Code's
     /// id→panel registry is the only thing that can tell the dead tab from a live one with
@@ -2553,6 +2557,7 @@ public partial class MainWindow : Window
         ws.ActiveClaudeTabLabel = null;
         ws.WindowGoneAt = DateTime.Now;
         ws.ConnectorSignature = "";
+        ws.ConnectorsChangedAt = DateTime.Now;
         foreach (var s in ws.Sessions) { s.OpenAsTab = false; s.TabGoneAt = null; }
     }
 
@@ -2722,6 +2727,17 @@ public partial class MainWindow : Window
     /// its last one closing is not news about whether it is alive.</summary>
     private static void WitnessClosedTabs(WorkspaceViewModel ws)
     {
+        // Nothing is witnessed while the connector set is still moving. A window that reloads,
+        // connects, drops or is still mid-handshake takes its whole tab list out of the union
+        // at once, and one that has connected but not yet synced contributes none — both read
+        // as every session in it losing its tab in the same second. Ten seconds against a
+        // sixty-second TTL costs nothing and is the difference between this shape and a mass
+        // false close.
+        if (DateTime.Now - ws.ConnectorsChangedAt < TabsSettleGrace)
+        {
+            foreach (var s in ws.Sessions) s.TabGoneAt = null;
+            return;
+        }
         foreach (var s in ws.Sessions.Where(s => !s.Closed && !s.Phantom))
         {
             if (s.OpenAsTab || s.ResumedInTerminal || s.MatchedTabLabel is not { Length: > 0 } label)
@@ -3175,6 +3191,7 @@ public partial class MainWindow : Window
         if (signature != ws.ConnectorSignature)
         {
             ws.ConnectorSignature = signature;
+            ws.ConnectorsChangedAt = DateTime.Now;
             foreach (var s in ws.Sessions) s.TabGoneAt = null;
         }
         var focused = conns.Where(c => c.Focused).OrderByDescending(c => c.LastFocusedAt).FirstOrDefault();

@@ -207,6 +207,16 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
     /// every session in it losing its tab in the same second. Runtime only.</summary>
     public string ConnectorSignature { get; set; } = "";
 
+    /// <summary>When that signature last moved. The witness waits this out rather than merely
+    /// resetting on the change, because resetting alone does not work: the reset happens in
+    /// ApplyConnectorState and the witness runs in ReapplyTabCorrelation, immediately after, in
+    /// the same cycle — so the pass that re-arms is the one the reset was meant to stop.
+    /// Measured 12-09-2026 on the deck's own shutdown: three connectors dropped in three
+    /// milliseconds, and every session in each departing window was witnessed as having lost
+    /// its tab, which is precisely the mass false close the fifteen-minute TTL exists to
+    /// prevent. Runtime only.</summary>
+    public DateTime ConnectorsChangedAt { get; set; } = DateTime.MinValue;
+
     // ---- live window binding (engine reuse from stage A/B) ----
 
     private IntPtr _hwnd;
