@@ -306,6 +306,17 @@ argument for it: it can only ADD a match, and a match only ever PREVENTS a close
 case is a delayed cleanup rather than a deleted card. Exactly one on each side, never two; print
 -mode runs and `replaced` sessions are excluded.
 
+**And since v0.9.92 `no tab matched` may only close a card when every tab already has an owner**
+(`ws.UnexplainedTabs`). While one tab answers to nobody, that tab might be this session's, so the
+sweep is not entitled to the conclusion; ↻ still closes it, because a manual reconcile is the
+user saying he knows better. Shay chose this trade-off explicitly on 12-09-2026, after the fourth
+live card lost in two days: a card left standing costs him one press of ↻, and a card lost costs
+him a second live session on the same topic, which had already happened. A tab a CLOSED session
+answers to is explained and does not block anything, which is why the 17 dead sessions of
+03-09-2026 would still all close — they shared ONE surviving tab, the live session takes it, and
+nothing is left over. What it gives up is the session whose label the deck can never match:
+its card will not retire itself.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
