@@ -2861,10 +2861,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>When exactly one open session found no tab and exactly one tab found no
-    /// session, they are each other's. Counting is not string matching, and it is right in the
-    /// one case matching cannot reach: a tab whose label appears in NO field of the session's
-    /// transcript, so no amount of candidate-widening will ever find it.
+    /// <summary>When the open sessions that match no tab are matched, one for one, by tabs that
+    /// answer to no session, they are each other's. Counting is not string matching, and it is
+    /// right in the one case matching cannot reach: a tab whose label appears in NO field of the
+    /// session's transcript, so no amount of candidate-widening will ever find it.
     ///
     /// Measured 12-09-2026, which is what it is for. Session 826bbe09 has had a tab reading
     /// "תוכנית הדרכה Claude בVS …" since 04:11:41, one second after it started; its transcript's
@@ -2873,33 +2873,101 @@ public partial class MainWindow : Window
     /// own tab for its whole life, and the orphan sweep closed its live card at 10:44:07 and
     /// again at 11:09:13, each time with that tab sitting in the list it printed.
     ///
+    /// Why the one-to-one form was not enough (v0.9.90, widened in v0.9.96). The two mystery
+    /// tabs measured that day were on the SAME card, ".claude", at the same time — 826bbe09 and
+    /// af317457 — so the rule that needed exactly one of each never fired for either, and both
+    /// cards went on being swept and terminal-resumed. Where the label is unreadable in
+    /// principle (CLAUDE.md, "Where a tab label comes from": the CLI hands the extension a title
+    /// over `rename_tab` and does not always persist it), a second one is not an unlucky
+    /// coincidence; it is the ordinary case on the card that carries twenty sessions and holds
+    /// every management topic. The rule is now "at least as many unowned
+    /// tabs as tabless sessions": then EVERY one of those sessions has a tab, which is exactly
+    /// as certain in aggregate as the single pair was, with no ordering to guess at.
+    ///
     /// Safe by direction, which is the whole argument for doing it by elimination at all: this
     /// can only ADD a match, and a match only ever PREVENTS a close. The worst case is a dead
     /// session holding a tab it does not own for one sweep longer — the cost of a delay, never
     /// of a deletion. Auto-acknowledge is untouched: ActiveTabSession demands a TITLE match and
     /// never consults this.
     ///
-    /// Exactly one on each side, no more: two of either is a guess, and a guess here would put
-    /// a tab on the wrong card. Print-mode sessions are excluded — a headless run has no tab by
-    /// construction, so it would take the leftover from whoever actually owns it. A `replaced`
-    /// session is excluded for the reason it already picks last: its successor usually carries
-    /// the same label, and letting the dead one claim by elimination would undo that.</summary>
+    /// Fewer tabs than sessions is left alone, deliberately. Counting still proves something
+    /// there — at most K of the M can have a tab — but not WHICH, and handing the tabs to the K
+    /// most recently active would expose the rest to the sweep. That is precisely the trade-off
+    /// Shay settled on 12-09-2026 after four live cards were lost in two days: a card left
+    /// standing costs him one press of ↻, a card lost costs him a second live session on the
+    /// same topic. Reopening it is his call and wants the measurement below first, which is why
+    /// the shape is logged on every change instead of being passed over in silence.
+    ///
+    /// A LABEL is still adopted only on the single pair, where there is nothing to guess: with
+    /// two of each, the session is known to have a tab but not which one, and a wrong
+    /// MatchedTabLabel would put a wrong title on the card and aim WitnessClosedTabs at the
+    /// wrong tab. OpenAsTab alone carries everything that matters — the sweep, the click path
+    /// and the witness all read it.
+    ///
+    /// Print-mode sessions are excluded — a headless run has no tab by construction, so it would
+    /// take the leftover from whoever actually owns it. A `replaced` session is excluded for the
+    /// reason it already picks last: its successor usually carries the same label, and letting
+    /// the dead one claim by elimination would undo that.</summary>
     private static void ClaimTheLastTabByElimination(WorkspaceViewModel ws, Dictionary<string, int> remaining)
     {
-        var unclaimed = remaining.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
-        if (unclaimed.Count != 1) return;
+        // Flattened, so a label two live tabs share counts twice — capacity, not distinct text.
+        var unclaimed = remaining.Where(kv => kv.Value > 0)
+                                 .SelectMany(kv => Enumerable.Repeat(kv.Key, kv.Value)).ToList();
         var orphaned = ws.Sessions.Where(s => !s.Closed && !s.Phantom && !s.OpenAsTab && !s.PrintMode
-                                              && s.Status != SessionStatus.Replaced && Correlatable(s)).ToList();
-        if (orphaned.Count != 1) return;
-        var session = orphaned[0];
-        string label = unclaimed[0];
-        remaining[label]--;
-        session.OpenAsTab = true;
-        if (session.MatchedTabLabel != label)
-            LogService.Info("correlate", $"session={session.SessionId} claimed the only unclaimed tab " +
-                                         $"\"{label}\" by elimination ws=\"{ws.DisplayTitle}\" — no title of its own matches it");
-        session.MatchedTabLabel = label;
+                                              && s.Status != SessionStatus.Replaced && Correlatable(s))
+                                  .ToList();
+        LogEliminationShape(ws, unclaimed.Count, orphaned.Count);
+        if (orphaned.Count == 0 || unclaimed.Count < orphaned.Count) return;
+
+        // Only the single pair is an identification; anything wider is a headcount.
+        bool certain = unclaimed.Count == 1 && orphaned.Count == 1;
+        for (int i = 0; i < orphaned.Count; i++)
+        {
+            var session = orphaned[i];
+            string label = unclaimed[i];
+            remaining[label]--;
+            session.OpenAsTab = true;
+            if (!certain) continue;
+            if (session.MatchedTabLabel != label)
+                LogService.Info("correlate", $"session={session.SessionId} claimed the only unclaimed tab " +
+                                             $"\"{label}\" by elimination ws=\"{ws.DisplayTitle}\" — no title of its own matches it");
+            session.MatchedTabLabel = label;
+        }
+        if (!certain) LogEliminationHeadcount(ws, orphaned, unclaimed.Count);
     }
+
+    /// <summary>The (unowned tabs, tabless sessions) shape, logged once per change. The bail-out
+    /// above used to be a silent `return`, so how often each shape actually occurs — and in
+    /// particular how often there are FEWER tabs than sessions, the case deliberately left
+    /// alone — was not answerable from the log. It is the measurement any further widening
+    /// would have to rest on.</summary>
+    private static void LogEliminationShape(WorkspaceViewModel ws, int tabs, int sessions)
+    {
+        string shape = $"{tabs}:{sessions}";
+        if (_eliminationShape.TryGetValue(ws.Id, out var last) && last == shape) return;
+        // Remembered even when it is not worth a line, so a card that keeps falling back to
+        // "nothing here at all" does not re-log its next real shape every few seconds.
+        _eliminationShape[ws.Id] = shape;
+        if (tabs == 0 && sessions == 0) return;
+        LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" elimination shape {tabs} unowned tab(s) " +
+                                     $"vs {sessions} tabless session(s) — " +
+                                     (sessions == 0 ? "nothing to claim"
+                                      : tabs < sessions ? "fewer tabs than sessions, left alone"
+                                      : tabs == 1 ? "the single pair" : "headcount claim"));
+    }
+
+    /// <summary>Name the sessions a headcount claim covered. Without it the log would show a card
+    /// that quietly stopped being swept and no line saying why — the failure the single-pair
+    /// claim was given its own line to avoid.</summary>
+    private static void LogEliminationHeadcount(WorkspaceViewModel ws, List<SessionViewModel> claimed, int tabs)
+        => LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" {claimed.Count} tabless session(s) " +
+                                        $"[{string.Join(", ", claimed.Select(s => s.SessionId[..8]))}] " +
+                                        $"each hold one of {tabs} unowned tab(s) by headcount — " +
+                                        "which tab is whose is unknown, so no label is adopted");
+
+    /// <summary>Last (tabs:sessions) shape logged per workspace id, so the line above fires on a
+    /// change instead of on every sync. Runtime only: a restart re-logs each card once.</summary>
+    private static readonly Dictionary<int, string> _eliminationShape = new();
 
     /// <summary>Mark the closed session behind a Claude tab that is still open, so the card
     /// says "the tab is a leftover" instead of showing nothing at all.
@@ -3340,7 +3408,13 @@ public partial class MainWindow : Window
         // Decide on this second's correlation, not on whenever the last connector synced: an
         // unfocused window reports slowly, and this reads ws.UnexplainedTabs below.
         ReapplyTabCorrelation(ws);
-        bool tabIsHere = ConnectorsFor(ws).Any(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)));
+        // OpenAsTab first, because a session that got its tab by elimination has one that no
+        // label of its own will ever match — and the elimination also spends that tab, dropping
+        // UnexplainedTabs to zero. Reading the labels alone would then call the session PROVEN
+        // tabless and resume it in a terminal: the widening in v0.9.96 would have reintroduced
+        // the 20:25:47 bug it exists to prevent, one line away from it.
+        bool tabIsHere = session.OpenAsTab ||
+                         ConnectorsFor(ws).Any(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)));
         // ...unless the deck WATCHED that tab close (WitnessClosedTabs). Then the session is not
         // a recovery case at all: its window is right here, and the tab is gone because the user
         // closed it. Resuming is the wrong answer twice over — it brings back a session he
