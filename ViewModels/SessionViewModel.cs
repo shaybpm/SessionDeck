@@ -408,6 +408,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (AgentsRunning > 0) lines.Add(AgentsTip);
             if (_dispatchedRuns > 0) lines.Add(DispatchedRunsTip);
             if (ActiveWatches > 0) lines.Add(WatchesTip);
+            if (ActiveJobs > 0) lines.Add(JobsTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Headline only — the ⛁ chip's own tooltip carries the breakdown.
             if (_tokens is { Requests: > 0 } tk)
@@ -630,18 +631,60 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// whether it is alive — and the intersection is the only honest reading of "this
     /// session is waiting on a machine, not on Shay".
     ///
-    /// A plain background shell is deliberately NOT counted, and that is the whole design.
-    /// Counting every running shell would be the easy version and it trades one false alarm
-    /// for another: a session that leaves a dev server up and then genuinely finishes with a
-    /// question for Shay would never claim his turn again. The repo's rule is precision over
-    /// coverage, so an unattributable task counts for nothing and the card behaves exactly as
-    /// it did before this existed.</summary>
+    /// A background shell that is not a Monitor is not counted HERE — since 0.9.95 it is counted
+    /// as a job instead (see <see cref="ActiveJobs"/>), which keeps the two kinds of outstanding
+    /// work apart on the card. What has not changed is the thing the original refusal was
+    /// protecting: a dev server left up by a session that then genuinely finishes with a question
+    /// must never silence that question, so a server-shaped command is still attributed to
+    /// nothing and its card behaves exactly as it did before any of this existed.</summary>
     public int ActiveWatches =>
         _monitorTaskIds.Count == 0 || _liveTaskIds.Count == 0
             ? 0
             : _liveTaskIds.Count(id => _monitorTaskIds.Contains(id));
 
     public bool HasWatches => ActiveWatches > 0;
+
+    private IReadOnlyList<string> _jobTaskIds = Array.Empty<string>();
+    /// <summary>The task ids this session backgrounded as Bash JOBS, read from the transcript
+    /// (see TranscriptInfo.JobTaskIds). Same shape as <see cref="MonitorTaskIds"/> and the same
+    /// half of the same answer: what the task IS, with the hook saying whether it is alive.</summary>
+    public IReadOnlyList<string> JobTaskIds
+    {
+        get => _jobTaskIds;
+        set
+        {
+            if (_jobTaskIds.SequenceEqual(value)) return;
+            _jobTaskIds = value;
+            RaiseWatchChip();
+        }
+    }
+
+    /// <summary>Background jobs of this session that are still running: the intersection again,
+    /// minus anything already counted as a watch.
+    ///
+    /// This is the half of "waiting on a machine" that 0.9.82 left out, and the omission was
+    /// measured on two cards the same evening (12-09-2026, sessions 8a6cf03c and c836d168):
+    /// both sat purple saying "your turn" while a backgrounded deploy-prep run was still going,
+    /// because neither had used the Monitor tool and a plain background shell counted for
+    /// nothing. The rule that kept it at nothing was right about the danger and too wide about
+    /// the remedy — the thing that must not silence a question is a server that never returns,
+    /// not every backgrounded command — and the command text, which only the transcript has,
+    /// separates the two. See TranscriptInfo.JobTaskIds.</summary>
+    public int ActiveJobs =>
+        _jobTaskIds.Count == 0 || _liveTaskIds.Count == 0
+            ? 0
+            : _liveTaskIds.Count(id => _jobTaskIds.Contains(id) && !_monitorTaskIds.Contains(id));
+
+    public bool HasJobs => ActiveJobs > 0;
+
+    /// <summary>The job chip. Its own again rather than a second 📡, for the reason the wave got
+    /// one: a monitor listens for something that may never come, a job is computing and will
+    /// finish, and which of those is out decides whether waiting is worth anything.</summary>
+    public string JobsText => ActiveJobs > 1 ? $"⚙{ActiveJobs}" : "⚙";
+
+    public string JobsTip => ActiveJobs == 1
+        ? "1 background job it started is still running — it wakes the session when it finishes, so this card is not asking for you"
+        : $"{ActiveJobs} background jobs it started are still running — they wake the session when they finish, so this card is not asking for you";
 
     /// <summary>The watch chip. 📡 rather than a third 🤖 or a second 🌊 because it answers a
     /// different question again: nothing of this session's is computing, it is listening, and
@@ -658,6 +701,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         Raise(nameof(HasWatches));
         Raise(nameof(WatchesText));
         Raise(nameof(WatchesTip));
+        Raise(nameof(ActiveJobs));
+        Raise(nameof(HasJobs));
+        Raise(nameof(JobsText));
+        Raise(nameof(JobsTip));
+        Raise(nameof(WaitingOnJob));
         Raise(nameof(WaitingOnWatch));
         Raise(nameof(WaitingOnMachine));
         Raise(nameof(StatusDisplay));
@@ -830,6 +878,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
                : _status == SessionStatus.Replaced && _openAsTab ? "replaced · close its tab"
                : WaitingOnWaves ? (_dispatchedRuns > 1 ? $"{_dispatchedRuns} waves running" : "wave running")
                : WaitingOnWatch ? (ActiveWatches > 1 ? $"watching, {ActiveWatches} monitors" : "watching")
+               : WaitingOnJob ? (ActiveJobs > 1 ? $"{ActiveJobs} jobs running" : "job running")
                : SessionStatusNames.ToDisplay(_status);
 
     /// <summary>The turn really has ended, but what it is waiting for is a machine, not Shay.
@@ -848,15 +897,21 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// turn", and the session woke itself off its monitor at 04:30 (11-09-2026). Four minutes of
     /// a card asking for Shay while the session sat waiting for a machine.
     ///
-    /// Only monitors — see <see cref="ActiveWatches"/> for why a background shell is not counted
-    /// and must not be.</summary>
+    /// Only monitors: a background JOB gets <see cref="WaitingOnJob"/> instead, so the card can
+    /// say which kind of work is out. Until 0.9.95 it got nothing at all — see
+    /// <see cref="ActiveJobs"/> for the two cards that measured the gap.</summary>
     public bool WaitingOnWatch => !_closed && _status == SessionStatus.Done && ActiveWatches > 0;
+
+    /// <summary>The same rule for a background job. Separate from <see cref="WaitingOnWatch"/>
+    /// only so the card can say which it is; the colour is shared, because the question a wall of
+    /// cards is scanned for has one answer.</summary>
+    public bool WaitingOnJob => !_closed && _status == SessionStatus.Done && ActiveJobs > 0;
 
     /// <summary>The turn ended, but what it is waiting for is a machine. One flag over both
     /// cases because on the question the deck's colour answers — is this card asking for me —
     /// a wave and a monitor say the same thing, and Shay reads a wall of cards by scanning for
     /// purple. The chips (🌊 / 📡) carry the difference for anyone who wants it.</summary>
-    public bool WaitingOnMachine => WaitingOnWaves || WaitingOnWatch;
+    public bool WaitingOnMachine => WaitingOnWaves || WaitingOnWatch || WaitingOnJob;
 
     /// <summary>The colour a card takes while it waits on a machine, shared by waves and
     /// watches so purple keeps meaning one thing only. Deliberately not an entry in
@@ -885,7 +940,8 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             // "look at me". Deliberately `done` alone: `waiting` and `error` need him
             // whether or not a wave of his is out, and silencing those would trade a false
             // alarm for a missed one.
-            if (_status == SessionStatus.Done && (_dispatchedRuns > 0 || ActiveWatches > 0)) return false;
+            if (_status == SessionStatus.Done &&
+                (_dispatchedRuns > 0 || ActiveWatches > 0 || ActiveJobs > 0)) return false;
             var style = ResolveStyle(_status);
             if (style.AltColor == null) return false;
             return !style.UntilAcknowledge || !_acknowledged;

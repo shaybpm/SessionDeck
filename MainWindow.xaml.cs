@@ -230,6 +230,7 @@ public partial class MainWindow : Window
                     BackgroundAgents = sc.BackgroundAgents,
                     LiveTaskIds = sc.LiveTaskIds,
                     MonitorTaskIds = sc.MonitorTaskIds,
+                    JobTaskIds = sc.JobTaskIds,
                     // Which window it ran in. Restored before any connector is up, because a
                     // deck restarted after the instance died is exactly when it is asked.
                     GroupId = sc.GroupId,
@@ -467,6 +468,7 @@ public partial class MainWindow : Window
                     BackgroundAgents = s.BackgroundAgents,
                     LiveTaskIds = s.LiveTaskIds.ToList(),
                     MonitorTaskIds = s.MonitorTaskIds.ToList(),
+                    JobTaskIds = s.JobTaskIds.ToList(),
                     GroupId = s.GroupId,
                 });
             }
@@ -1064,11 +1066,14 @@ public partial class MainWindow : Window
                     // armed them left them, which is exactly right. What expires the count is
                     // the hook's side, on the next Stop.
                     int watchesBefore = session.ActiveWatches;
+                    int jobsBefore = session.ActiveJobs;
                     session.MonitorTaskIds = tInfo.MonitorTaskIds ?? Array.Empty<string>();
-                    if (session.ActiveWatches != watchesBefore)
+                    session.JobTaskIds = tInfo.JobTaskIds ?? Array.Empty<string>();
+                    if (session.ActiveWatches != watchesBefore || session.ActiveJobs != jobsBefore)
                     {
                         LogService.Info("status", $"session={session.SessionId} " +
-                            $"watches {watchesBefore}→{session.ActiveWatches} (transcript ∩ background_tasks)");
+                            $"watches {watchesBefore}→{session.ActiveWatches} " +
+                            $"jobs {jobsBefore}→{session.ActiveJobs} (transcript ∩ background_tasks)");
                         // Worth a save of its own: this half has no other writer, and leaving it
                         // to whatever hook event happens along next is how it would be missing
                         // from the config at the one moment it is read — the restart.
