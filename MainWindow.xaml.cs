@@ -3263,6 +3263,9 @@ public partial class MainWindow : Window
         // no registry, so ask for the terminal route in exactly that case (measured 05-09-2026:
         // two of the seven sessions recovered from the dead green instance came back empty, and
         // both resumed first try from a terminal).
+        // Decide on this second's correlation, not on whenever the last connector synced: an
+        // unfocused window reports slowly, and this reads ws.UnexplainedTabs below.
+        ReapplyTabCorrelation(ws);
         bool tabIsHere = ConnectorsFor(ws).Any(c => c.Tabs.Any(t => TabLabelMatches(t.Label, session)));
         // ...unless the deck WATCHED that tab close (WitnessClosedTabs). Then the session is not
         // a recovery case at all: its window is right here, and the tab is gone because the user
@@ -3279,8 +3282,23 @@ public partial class MainWindow : Window
             return (false, $"\"{session.DisplayTitle}\" ended when you closed its tab at {gone:HH:mm} — " +
                            "not resumed, because resuming would start it up again. The card clears itself shortly.");
         }
-        bool viaTerminal = !tabIsHere && conn.SupportsTerminalResume;
-        if (!tabIsHere && !conn.SupportsTerminalResume)
+        // The other consumer of "no tab matched", and the more dangerous one — CLAUDE.md names
+        // both. It gets the same rule the sweep took in v0.9.92: the deck may conclude the
+        // session has no tab HERE only when every tab already has an owner. While one answers to
+        // nobody, that tab may be this session's, and `claude --resume` would then start a second
+        // copy of a session that is sitting open in front of him.
+        //
+        // Measured 12-09-2026 at 20:25:47, twenty minutes after the sweep half shipped: Shay
+        // clicked af317457, whose tab "דף צריכת הטוקנים" was open in that very window, and the
+        // deck resumed it in a terminal — the tab was never MATCHED, so nothing in the witness
+        // path applied. Revealing instead is the right fallback and always was: Claude Code's own
+        // id→panel registry is the one thing that can find a tab the label cannot.
+        bool tablessProven = !tabIsHere && ws.UnexplainedTabs == 0;
+        bool viaTerminal = tablessProven && conn.SupportsTerminalResume;
+        if (!tabIsHere && !tablessProven)
+            LogService.Info("route", $"session={session.SessionId} revealed, NOT resumed — " +
+                                     $"{ws.UnexplainedTabs} tab(s) here answer to nobody and one may be its");
+        else if (!tabIsHere && !conn.SupportsTerminalResume)
             LogService.Info("route", $"session={session.SessionId} has no tab here and the window's " +
                                      $"extension is {(conn.Version.Length > 0 ? conn.Version : "pre-0.6.12")} — " +
                                      "opening in place, which may come up blank");
