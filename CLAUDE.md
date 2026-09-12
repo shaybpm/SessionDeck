@@ -366,20 +366,31 @@ two days. The bail-out used to be a silent `return`, so how often each shape occ
 answerable from the log; `correlate ... elimination shape K unowned tab(s) vs M tabless
 session(s)` now fires once per change per card. Grep that before proposing to widen it further.
 
-**But K is not the number the sweep reads, so that line could not settle its own question until
-v0.9.97.** `ws.UnexplainedTabs` comes off the same `remaining` dictionary and then drops every tab
-a CLOSED session answers to, so it can be zero while K is not — and that difference splits "fewer
-tabs than sessions" into two shapes whose answers are OPPOSITE. While some unowned tab is
-unexplained the sweep guard already refuses to close **any** session on the card, so claiming K of
-them protects nobody who is not already protected and RELEASES the guard on the other M-K: a pure
-loss. Once every unowned tab is a closed session's leftover, `UnexplainedTabs` is already zero, all
-M are exposed right now, and a claim is the only protection going: a pure gain, safe by direction
-in exactly the sense the headcount claim rests on. The line reports the split (`N of K unexplained,
-sweep blocked for all M` / `sweep free already`), names the exposed sessions, and marks any shape
-logged while the connector set is still moving — six of the eight left-alone lines in the first
-half-hour of v0.9.96 were startup churn, because a window that has connected contributes no tabs
-until it syncs. `ClaudeCode-SessionDeckEliminationShape` counts the two shapes on 18-09-2026 and
-writes the verdict onto #4.13.46; until it reports, widening claims nothing that has been measured.
+**But K is not the number the sweep reads, and once that was seen the question answered itself
+(v0.9.98).** `ws.UnexplainedTabs` comes off the same `remaining` dictionary and then drops every
+tab a CLOSED session answers to, so it can be zero while K is not — and that difference splits
+"fewer tabs than sessions" into two shapes whose answers are OPPOSITE, which is why a rule stated
+in terms of K could never be right for both.
+
+- **Some unowned tab is unexplained.** The sweep guard already refuses to close **any** session on
+  the card, so claiming K of them protects nobody who is not already protected and RELEASES the
+  guard on the other M-K. A pure loss, and still refused — this is the half Shay settled on
+  12-09-2026 and nothing about it moved.
+- **Every unowned tab is a closed session's leftover.** `UnexplainedTabs` is already zero, the
+  guard is holding nobody, all M are exposed this instant, and a claim protects K of them while
+  releasing nothing. A pure gain, safe by the same direction argument as the full headcount — it
+  can only add a match, and a match only ever prevents a close. **This half is now claimed**, most
+  recently active first, with no label adopted (only the single pair identifies a tab).
+
+The log line reports the split (`N of K unexplained, sweep blocked for all M` / `sweep free
+already`), names the exposed sessions, and marks any shape logged while the connector set is still
+moving — six of the eight left-alone lines in the first half-hour of v0.9.96 were startup churn,
+because a window that has connected contributes no tabs until it syncs. Waiting on those counts
+before fixing the safe half was the wrong call and was reversed the same night: the measurement
+only ever bore on whether the shape is COMMON, never on whether the claim is SAFE, and the shape it
+would have been counting is one where a live card sits exposed with nothing in the way.
+`ClaudeCode-SessionDeckEliminationShape` still runs on 18-09-2026, now to report how often each
+half actually fires rather than to decide anything.
 
 **And since v0.9.92 `no tab matched` may only close a card when every tab already has an owner**
 (`ws.UnexplainedTabs`). While one tab answers to nobody, that tab might be this session's, so the
