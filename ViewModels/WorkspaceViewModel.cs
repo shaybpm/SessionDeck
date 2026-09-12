@@ -147,6 +147,87 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
         Raise(nameof(ClaudeTabsTooltip));
     }
 
+    // ---- the wallet this card spends (Shay, 13-09-2026) ----
+    //
+    // "so I can see in advance whether to go on opening sessions on this card". It is a
+    // property of the ACCOUNT, not of the folder, and on this deck a card is a window: the
+    // three group cards are the three instances, one Claude account each, and every other card
+    // is a window that spends the default wallet. So the pill belongs on the card header,
+    // beside the branch, and not on a page of its own.
+    //
+    // Both numbers, because either ceiling can end the session he is about to open and they run
+    // on completely different clocks: the weekly one resets on a fixed day, the 5-hour window
+    // opens on its first request. Hence the resets too — 98% is a wall if it clears in two days
+    // and a shrug if it clears in twenty minutes.
+
+    private string _quotaText = "";
+    /// <summary>"66/28 · 2d/28m" — weekly and 5-hour percent, then when each one resets.
+    /// Empty when nothing can be said honestly; see <see cref="Services.QuotaReader"/>.</summary>
+    public string QuotaText
+    {
+        get => _quotaText;
+        private set { if (_quotaText != value) { _quotaText = value; Raise(); Raise(nameof(HasQuota)); } }
+    }
+
+    public bool HasQuota => _quotaText.Length > 0;
+
+    private string _quotaTooltip = "";
+    public string QuotaTooltip
+    {
+        get => _quotaTooltip;
+        private set { if (_quotaTooltip != value) { _quotaTooltip = value; Raise(); } }
+    }
+
+    private Brush _quotaBrush = Brushes.Gainsboro;
+    /// <summary>The pill's own colour, because the number is read at a glance and the point of
+    /// reading it is the decision "another session here, or not". Grey below 60, orange from
+    /// 60, red from 85 — on the HIGHER of the two, since either one alone stops the session.
+    /// The thresholds are the quota watcher's own two tiers.</summary>
+    public Brush QuotaBrush
+    {
+        get => _quotaBrush;
+        private set { if (!Equals(_quotaBrush, value)) { _quotaBrush = value; Raise(); } }
+    }
+
+    private static readonly Brush QuotaCalm = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
+    private static readonly Brush QuotaWarm = new SolidColorBrush(Color.FromRgb(0xF0, 0x96, 0x4B));
+    private static readonly Brush QuotaHot  = new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x6B));
+
+    /// <summary>Put this tick's reading on the card, or clear it when there is none.</summary>
+    public void ApplyQuota(QuotaReading? reading, string accountLabel)
+    {
+        if (reading is null)
+        {
+            QuotaText = "";
+            QuotaTooltip = "";
+            return;
+        }
+        QuotaText = $"{reading.WeeklyPercent}/{reading.SessionPercent} · " +
+                    $"{Remaining(reading.WeeklyResetsAt)}/{Remaining(reading.SessionResetsAt)}";
+        QuotaTooltip =
+            $"{accountLabel}{Environment.NewLine}" +
+            $"Weekly: {reading.WeeklyPercent}%, resets {Absolute(reading.WeeklyResetsAt)}{Environment.NewLine}" +
+            $"5-hour window: {reading.SessionPercent}%, resets {Absolute(reading.SessionResetsAt)}";
+        int worst = Math.Max(reading.WeeklyPercent, reading.SessionPercent);
+        QuotaBrush = worst >= 85 ? QuotaHot : worst >= 60 ? QuotaWarm : QuotaCalm;
+    }
+
+    /// <summary>"2d" / "3h" / "28m" — one unit, because the pill is read in passing and the
+    /// question behind it ("can I still start something here") never turns on the minutes of a
+    /// two-day wait. A window with no reset time at all is at zero and has not opened yet.</summary>
+    private static string Remaining(DateTime? resetsAt)
+    {
+        if (resetsAt is null) return "-";
+        var left = resetsAt.Value.ToUniversalTime() - DateTime.UtcNow;
+        if (left <= TimeSpan.Zero) return "now";
+        if (left.TotalDays >= 1) return $"{(int)left.TotalDays}d";
+        if (left.TotalHours >= 1) return $"{(int)left.TotalHours}h";
+        return $"{Math.Max(1, (int)left.TotalMinutes)}m";
+    }
+
+    private static string Absolute(DateTime? resetsAt) =>
+        resetsAt is null ? "not started" : resetsAt.Value.ToLocalTime().ToString("ddd HH:mm");
+
     /// <summary>How long a reported active tab stays believable without a refresh. The
     /// extension heartbeats every 2s while focused, so three missed beats expire it.</summary>
     public static TimeSpan ActiveTabTtl { get; set; } = TimeSpan.FromSeconds(6);

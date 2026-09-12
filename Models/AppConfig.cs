@@ -402,6 +402,24 @@ public class AppConfig
         _        => "",
     };
 
+    /// <summary>Which wallet a card spends: the slot name <c>quota.json</c> files its accounts
+    /// under. Each of the three instances is bound to one Claude account by the
+    /// <c>CLAUDE_SECURESTORAGE_CONFIG_DIR</c> its launcher sets, so the group IS the account;
+    /// a window started any other way spends the default wallet, which that file calls "team"
+    /// and labels "TEAM, windows that are not dev".
+    ///
+    /// Deliberately a map here and not a field on <see cref="SessionGroupConfig"/>: the slot
+    /// names belong to a file this repo does not own, and a value persisted into config.json
+    /// would be one more thing to migrate the day that file renames one.</summary>
+    public static string QuotaSlotFor(string groupId) => groupId.ToLowerInvariant() switch
+    {
+        "purple" => "mgmt",
+        "green"  => "mgmt2",
+        "orange" => "mgmt3",
+        ""       => "team",
+        _        => "",
+    };
+
     /// <summary>Schema 7: groups seeded before the chip existed learn their colour. Only fills
     /// an EMPTY one, so a colour set by hand in config.json is never overwritten.</summary>
     public static int FillMissingGroupColors(List<SessionGroupConfig> groups)
