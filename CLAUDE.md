@@ -283,6 +283,29 @@ successor opened in orange ten seconds later, resumed from the deck at 10:41:42 
 refuses the resume and says so in the status line; a session the deck itself put in a terminal
 carries `ResumedInTerminal` and is exempt from the witness, having no tab by design.
 
+Two things that guard the witness, both paid for the same morning. **It waits out connector
+churn rather than merely resetting on it** (`ConnectorsChangedAt`, `TabsSettleGrace`): the reset
+lives in `ApplyConnectorState` and the witness runs in `ReapplyTabCorrelation` right after it, in
+the same cycle, so the pass that re-arms is the one the reset was meant to stop. Measured on the
+deck's own shutdown at 11:15:23 — three connectors dropped inside three milliseconds and every
+session in each departing window was witnessed at once, which is the mass false close the
+fifteen-minute TTL exists to prevent, reintroduced by the thing meant to be sharper than it. The
+grace also covers what no signature comparison can: a connector that has connected but not yet
+synced contributes no tabs, so the union is short a window's worth while the pid set looks whole.
+
+**And `ClaimTheLastTabByElimination` (v0.9.90) reaches the one case matching never will.** Every
+correlation fix so far widened what the label is compared against — truncation, case, AutoTitle
+on a titled session. Session 826bbe09 defeats all of them: its tab has read
+`תוכנית הדרכה Claude בVS …` since one second after it started, its only ai-title reads
+`תוכנית הדרכה לעובדים ב-Claude VS`, its prompts read something else again, and that label appears
+in no transcript on this machine. It could not match its own tab for its whole life, and the
+sweep closed its live card at 10:44:07 and again at 11:09:13, each time printing that very tab in
+its own log line. So when exactly one open session found no tab and exactly one tab found no
+session, they are paired — counting, not matching. Safe by direction and that is the whole
+argument for it: it can only ADD a match, and a match only ever PREVENTS a close, so the worst
+case is a delayed cleanup rather than a deleted card. Exactly one on each side, never two; print
+-mode runs and `replaced` sessions are excluded.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
