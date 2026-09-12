@@ -69,6 +69,16 @@ independently and are printed together by `install.ps1` so a mismatch is visible
 PowerShell 5.1 reads a BOM-less `.ps1` as ANSI and mangles the non-ASCII characters in
 its comments.
 
+**Two branches that pick the same version do NOT conflict, and nothing else warns either**
+(measured 13-09-2026, when two sessions both took 0.9.97 to 0.9.98). Both sides write the
+identical string, so git merges the line clean - a version collision is invisible precisely
+because it is a collision. `install.ps1` prints the version but cannot help: both builds
+honestly report the same number. The result is two different binaries under one version, which
+is the thing every other rule in this section exists to prevent. **So read the version on
+`origin/main`, not the one in your own base, immediately before bumping** - your base is stale
+the moment anyone else merges. `git show origin/main:SessionDeck.csproj | grep '<Version>'`
+after a `git fetch` is the whole check.
+
 ## Whose fork this is
 
 This checkout is Shay's fork. **Shay's requirements decide what this build does.** The
