@@ -2902,20 +2902,22 @@ public partial class MainWindow : Window
     /// of a deletion. Auto-acknowledge is untouched: ActiveTabSession demands a TITLE match and
     /// never consults this.
     ///
-    /// Fewer tabs than sessions is left alone, deliberately. Counting still proves something
-    /// there — at most K of the M can have a tab — but not WHICH, and handing the tabs to the K
-    /// most recently active would expose the rest to the sweep. That is precisely the trade-off
-    /// Shay settled on 12-09-2026 after four live cards were lost in two days: a card left
-    /// standing costs him one press of ↻, a card lost costs him a second live session on the
-    /// same topic. Reopening it is his call and wants the measurement below first, which is why
-    /// the shape is logged on every change instead of being passed over in silence.
+    /// Fewer tabs than sessions SPLITS, and the split is not visible from K and M. Counting still
+    /// proves something there — at most K of the M can have a tab — but not WHICH, so the whole
+    /// question is what the sweep would do to the ones left over, and that is answered by
+    /// ws.UnexplainedTabs rather than by K.
     ///
-    /// That trade-off is real in only ONE of the two shapes hiding inside "fewer tabs than
-    /// sessions", and which one is not visible from K and M — see LogEliminationShape, which
-    /// now reports the split. While any unowned tab is unexplained the sweep is already blocked
-    /// for every session on the card, so there is nothing to buy and only the guard to lose;
-    /// once every leftover is explained, the sweep is free and a claim is the only protection
-    /// going. A widening that does not distinguish them gets the dangerous half for free.
+    /// While any unowned tab is UNEXPLAINED the sweep guard is already refusing to close every
+    /// session on the card. Claiming there buys nothing and costs the guard on the M-K, which is
+    /// exactly the trade-off Shay refused on 12-09-2026 after four live cards were lost in two
+    /// days: a card left standing costs him one press of ↻, a card lost costs him a second live
+    /// session on the same topic. That half is still refused and must stay refused.
+    ///
+    /// When every unowned tab is a CLOSED session's leftover, UnexplainedTabs is already zero,
+    /// the guard is holding nobody, and all M are exposed this instant. A claim protects K of
+    /// them and exposes no one, because there was no guard to release — safe by the same
+    /// direction argument as the full headcount. That half is claimed (13-09-2026), and it is
+    /// where a live card was being left to the sweep with nothing standing in the way.
     ///
     /// A LABEL is still adopted only on the single pair, where there is nothing to guess: with
     /// two of each, the session is known to have a tab but not which one, and a wrong
@@ -2936,11 +2938,31 @@ public partial class MainWindow : Window
                                               && s.Status != SessionStatus.Replaced && Correlatable(s))
                                   .ToList();
         LogEliminationShape(ws, unclaimed, orphaned);
-        if (orphaned.Count == 0 || unclaimed.Count < orphaned.Count) return;
+        if (orphaned.Count == 0 || unclaimed.Count == 0) return;
+
+        // FEWER tabs than sessions is claimable in exactly one shape, and refused in the other.
+        // The question was never K against M; it is whether ws.UnexplainedTabs is already zero.
+        // While some unowned tab is unexplained, the sweep guard is holding for EVERY session on
+        // this card, so claiming a few of them protects nobody who is not already protected and
+        // drops the guard on the rest — the trade-off Shay refused on 12-09-2026, and it stays
+        // refused. When every unowned tab is a closed session's leftover the guard is holding
+        // nobody, all M are exposed this instant, and a claim is the only protection going: safe
+        // by direction in exactly the sense the full headcount rests on, since it can only ADD a
+        // match and a match only ever PREVENTS a close.
+        bool partial = unclaimed.Count < orphaned.Count;
+        if (partial && unclaimed.Any(l => !ws.Sessions.Any(s => s.Closed && MatchTabLabel(l, s) != null)))
+            return;
+
+        // Which of the M get the K tabs cannot be wrong in the way that matters — a session
+        // protected in another's place is a delayed cleanup, never a deleted card — but the
+        // liveliest is both the likeliest to really own one and the one whose loss would cost him
+        // a second live session on the same topic.
+        if (partial) orphaned = orphaned.OrderByDescending(LastActivity).ToList();
 
         // Only the single pair is an identification; anything wider is a headcount.
         bool certain = unclaimed.Count == 1 && orphaned.Count == 1;
-        for (int i = 0; i < orphaned.Count; i++)
+        int claims = Math.Min(unclaimed.Count, orphaned.Count);
+        for (int i = 0; i < claims; i++)
         {
             var session = orphaned[i];
             string label = unclaimed[i];
@@ -2952,7 +2974,7 @@ public partial class MainWindow : Window
                                              $"\"{label}\" by elimination ws=\"{ws.DisplayTitle}\" — no title of its own matches it");
             session.MatchedTabLabel = label;
         }
-        if (!certain) LogEliminationHeadcount(ws, orphaned, unclaimed.Count);
+        if (!certain) LogEliminationHeadcount(ws, orphaned.Take(claims).ToList(), unclaimed.Count, partial);
     }
 
     /// <summary>The (unowned tabs, tabless sessions) shape, logged once per change. The bail-out
@@ -3016,12 +3038,21 @@ public partial class MainWindow : Window
 
     /// <summary>Name the sessions a headcount claim covered. Without it the log would show a card
     /// that quietly stopped being swept and no line saying why — the failure the single-pair
-    /// claim was given its own line to avoid.</summary>
-    private static void LogEliminationHeadcount(WorkspaceViewModel ws, List<SessionViewModel> claimed, int tabs)
+    /// claim was given its own line to avoid.
+    ///
+    /// The PARTIAL form is a weaker statement and must not borrow the full one's wording. With at
+    /// least as many tabs as sessions, every tabless session provably holds one. With fewer, only
+    /// this subset does, the rest hold nothing, and they are safe from the sweep for the separate
+    /// reason that every unowned tab here is a closed session's leftover — so UnexplainedTabs was
+    /// already zero and the claim released no guard.</summary>
+    private static void LogEliminationHeadcount(WorkspaceViewModel ws, List<SessionViewModel> claimed,
+                                                int tabs, bool partial)
         => LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" {claimed.Count} tabless session(s) " +
                                         $"[{string.Join(", ", claimed.Select(s => s.SessionId[..8]))}] " +
                                         $"each hold one of {tabs} unowned tab(s) by headcount — " +
-                                        "which tab is whose is unknown, so no label is adopted");
+                                        "which tab is whose is unknown, so no label is adopted" +
+                                        (partial ? " (partial: every unowned tab is a closed session's " +
+                                                   "leftover, so this released no sweep guard)" : ""));
 
     /// <summary>Last (tabs:sessions) shape logged per workspace id, so the line above fires on a
     /// change instead of on every sync. Runtime only: a restart re-logs each card once.</summary>
