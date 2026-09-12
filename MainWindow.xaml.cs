@@ -1852,7 +1852,8 @@ public partial class MainWindow : Window
                                   string? Mode = null, string? Reason = null, bool PermissionDialog = false,
                                   int? Agents = null, string? Entrypoint = null,
                                   bool PrintMode = false, string? Dispatcher = null,
-                                  string? Group = null, IReadOnlyList<string>? TaskIds = null)
+                                  string? Group = null, IReadOnlyList<string>? TaskIds = null,
+                                  int? Pid = null)
     {
         public static readonly HookInfo Empty = new();
     }
@@ -1921,6 +1922,10 @@ public partial class MainWindow : Window
                 fs.BackgroundAgents = 0;
                 fs.ForegroundAgents = 0;
                 fs.ClearLostAgents();
+                // And nothing the old incarnation's processes said still applies, including
+                // which of them was speaking. A `resume` deliberately keeps them: that is the
+                // exact case where a second process appears and the old one does not leave.
+                fs.ClearHookPids();
             }
             fs.StartedAt = DateTime.Now;
             fs.EndedAt = null;
@@ -1969,6 +1974,13 @@ public partial class MainWindow : Window
 
     private static void ApplyHookInfo(SessionViewModel session, HookInfo info)
     {
+        // WHICH process spoke. The only check in the deck that can tell one session apart from
+        // itself: everything else here is keyed on the session id, and a fork has the same id on
+        // both sides. Logged once, on the transition, by NoteHookPid's own return.
+        if (info.Pid is int hookPid && session.NoteHookPid(hookPid))
+            LogService.Info("status", $"session={session.SessionId} FORKED: two live processes are " +
+                                      $"writing it (pids {session.HookPid} and {session.PriorHookPid}) — " +
+                                      "one transcript, two conversations");
         session.LastEventAt = DateTime.Now;
         session.OrphanSince = null;   // any hook event is proof of life — restart the orphan clock
         session.TabGoneAt = null;     // ...and it speaks for the tab witness too: it is alive somewhere

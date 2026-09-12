@@ -17,8 +17,24 @@
 | `ElicitationResult` | `session status --state working` | steady blue | the user answered the MCP server |
 | `SessionEnd` | `session end` | the card closes | `reason` (clear/logout/prompt_input_exit/other) |
 
-Every event also forwards, when present: `transcript_path`, `permission_mode`, and
-`--entrypoint` (see below).
+Every event also forwards, when present: `transcript_path`, `permission_mode`,
+`--entrypoint` (see below), and `--pid` (see next section).
+
+### Which PROCESS is speaking (v0.9.99)
+
+Every event carries `--pid <n>`, taken from `$env:CLAUDE_PID` — the CLI's own process id. One
+session id is meant to name exactly one process. When it names two, both append to the same
+transcript and the conversation forks in silence: measured 12-09-2026 on session `f7353199`,
+which answered Shay from two parallel branches of one file twenty minutes apart. Nothing else in
+the payload can see it, because the session id is identical on both sides by definition and the
+transcript is the victim rather than the witness.
+
+`CLAUDE_PID` is **constant across every event of a session, subagent events included** — probed
+the same night with a scratch `--settings` and `claude -p` over `SessionStart`, `PreToolUse`,
+`SubagentStart`, `SubagentStop` and `Stop` with a background agent out, one pid throughout. So a
+second pid is never a subagent and always a second process. The hook only reports it; the deck
+decides what it means (`SessionViewModel.NoteHookPid`, which fires on ALTERNATION between two
+pids and never on a pid merely changing, since a resume changes it legitimately).
 
 ### Which VSCode window the session is in (v0.9.67)
 

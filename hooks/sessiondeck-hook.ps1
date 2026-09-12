@@ -1,5 +1,5 @@
 ﻿# SessionDeck hook bridge for Claude Code.
-# Version: 0.9.87  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
+# Version: 0.9.99  (parsed by install.ps1 — keep in sync with SessionDeck.csproj; release.ps1 syncs automatically)
 # Called by Claude Code hooks with the event name as argument; the hook payload
 # (session_id, cwd, transcript_path, permission_mode + event-specific fields)
 # arrives as JSON on stdin. Everything the payload provides is forwarded to
@@ -236,6 +236,16 @@ if ($HookEvent -in @('UserPromptSubmit', 'Stop')) {
     $group = Get-SessionGroup
     if ($group)                   { $cliArgs += @('--group', $group) }
 }
+# WHICH PROCESS is speaking. One session id is meant to have exactly one CLI process, and when
+# it has two they both append to the same transcript and the conversation forks in silence —
+# measured 12-09-2026 on session f7353199, which answered Shay twice from two branches of one
+# file. Nothing else in the payload can see it: the session id is identical by definition, and
+# the transcript is the shared victim rather than the witness. CLAUDE_PID is the CLI's own pid
+# and it is CONSTANT across every event of a session, subagent events included (measured the
+# same night on a probe session: one pid over SessionStart, PreToolUse, SubagentStart,
+# SubagentStop and Stop, with a background agent out), so a second pid is never a subagent and
+# always a second process. The deck decides what it means; the hook only reports it.
+if ($env:CLAUDE_PID)           { $cliArgs += @('--pid', $env:CLAUDE_PID) }
 if ($payload.transcript_path)  { $cliArgs += @('--transcript', $payload.transcript_path) }
 if ($payload.permission_mode)  { $cliArgs += @('--mode', $payload.permission_mode) }
 # Who started this session: claude-vscode for the IDE, sdk-cli for a headless

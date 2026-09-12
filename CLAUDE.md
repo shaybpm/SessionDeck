@@ -186,6 +186,30 @@ between them:
    and `jobs 0 to 1` on the first scan after the fix, cards reading `2 jobs running` and
    `job running`.
 
+**One session id is meant to name ONE process, and since v0.9.99 the deck says when it does not.**
+Every signal above is keyed on the session id, so none of them can see the failure where the id itself
+stops being unique: two CLI processes appending to one transcript. The conversation FORKS and each half
+answers Shay without knowing the other exists. Measured 12-09-2026 on `f7353199`, whose transcript
+carries two parent chains from one node - one continuing at 22:08, the other at 22:11 from a node last
+written at 22:02 - both writing Hebrew replies into the same tab; and on `4c47abe7`, which held two
+processes from 10:41 and 10:42 that were still alive twelve hours later. Shay found it the only way left
+open to him, by being asked the same question twice.
+
+The witness is `CLAUDE_PID`, which the hook always had and never sent. It is CONSTANT across every event
+of a session, subagent events included - probed the same night with a scratch `--settings` over
+SessionStart, PreToolUse, SubagentStart, SubagentStop and Stop with a background agent out, one pid
+throughout - so a second pid is never a subagent and always a second process. **The test is ALTERNATION,
+never "the pid changed":** a resume, an auto-update relaunch and a crash-and-restart all change it
+legitimately, and twenty of them did in one evening on ten healthy sessions. What a clean handover can
+never do is speak again with the OLD pid after a newer one has taken over. Deliberately no liveness check
+decides it - a pid outlives its process and Windows recycles them - so the mark is evidence-based and
+expires after ten minutes of silence from the other side. The card takes its own alarm red and says
+`2 processes · forked` ahead of every other state, outranking the machine-wait colour: the status
+underneath is whatever the last process to speak said it was, and this is the one state where the card's
+own words may be describing half a conversation. **What it does not do is stop the fork** - nothing here
+can decide which of two live conversations to keep, and the mark exists so that choice reaches Shay in
+seconds instead of being discovered from a repeated question.
+
 **A `SessionStart` is not always a fresh start.** Clicking a card makes the deck send an open
 command, VSCode answers with `SessionStart source=resume`, and `StartSession` used to reset any
 known session to `idle` silently — so looking at a session destroyed the state you clicked to

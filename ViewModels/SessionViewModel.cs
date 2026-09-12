@@ -409,6 +409,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
             if (_dispatchedRuns > 0) lines.Add(DispatchedRunsTip);
             if (ActiveWatches > 0) lines.Add(WatchesTip);
             if (ActiveJobs > 0) lines.Add(JobsTip);
+            // First of the chips' lines when it fires: it is the only one that says the card's
+            // own content may be untrustworthy.
+            if (_forked) lines.Insert(0, ForkedTip);
             if (_lostAgents > 0) lines.Add(LostAgentsTip);
             // Headline only — the ⛁ chip's own tooltip carries the breakdown.
             if (_tokens is { Requests: > 0 } tk)
@@ -682,6 +685,101 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// finish, and which of those is out decides whether waiting is worth anything.</summary>
     public string JobsText => ActiveJobs > 1 ? $"⚙{ActiveJobs}" : "⚙";
 
+    // ---- two processes on one session ----
+
+    private int _hookPid;               // the CLI process whose events the deck is seeing now
+    private int _priorHookPid;          // the one it replaced
+    private DateTime _forkEvidenceAt;   // when the two last alternated
+    private bool _forked;
+
+    /// <summary>Two CLI processes are writing this one session, and both are alive.
+    ///
+    /// A session id is meant to name exactly one process. When it names two they both append to
+    /// the same transcript, the conversation FORKS, and each half answers Shay without knowing
+    /// the other exists — measured 12-09-2026 on session f7353199, whose transcript carries two
+    /// parallel parent chains from one node, twenty minutes apart, both writing Hebrew replies
+    /// into the same tab. Nothing already in the deck could see it: the hooks, the card, the
+    /// status machine and the transcript scanner are all keyed on the session id, which is
+    /// identical by construction, and the transcript is the victim rather than the witness. Shay
+    /// found it the only way left — being asked the same question twice.
+    ///
+    /// The evidence is the hook's CLAUDE_PID, which is CONSTANT across every event of a session,
+    /// subagent events included (probed the same night: one pid over SessionStart, PreToolUse,
+    /// SubagentStart, SubagentStop and Stop with a background agent out). So a second pid is
+    /// never a subagent and always a second process.</summary>
+    public bool ForkedProcesses
+    {
+        get => _forked;
+        private set
+        {
+            if (_forked == value) return;
+            _forked = value;
+            Raise();
+            Raise(nameof(ForkedTip));
+            Raise(nameof(StatusDisplay));
+            Raise(nameof(BorderBrush));
+            Raise(nameof(TooltipText));
+        }
+    }
+
+    /// <summary>How long the mark outlives its last proof. A fork ends when one of the two
+    /// processes exits, and nothing announces that: the survivor simply keeps talking. So the
+    /// mark is evidence-based and expires on silence from the other side rather than on a
+    /// process query — a pid outlives its process and Windows recycles them, which is how an
+    /// ancestor walk once called a live session someone else's subagent.</summary>
+    private static readonly TimeSpan ForkEvidenceTtl = TimeSpan.FromMinutes(10);
+
+    /// <summary>Record which CLI process fired this event. Returns true only the first time it
+    /// can prove there are two, so the caller logs once rather than on every event.
+    ///
+    /// The test is ALTERNATION, never "the pid changed": a resume, an auto-update relaunch and a
+    /// crash-and-restart all change it legitimately, and on 12-09-2026 twenty of them did in one
+    /// evening on ten healthy sessions. What a clean handover can never do is speak again with
+    /// the OLD pid after the new one has taken over. Deliberately no liveness check to decide
+    /// it: that would need the process table, and precision here is worth more than speed —
+    /// a false alarm on this card teaches Shay to ignore the one mark that means his work is
+    /// being split in two.</summary>
+    public bool NoteHookPid(int pid)
+    {
+        if (pid <= 0) return false;
+        if (_hookPid == 0) { _hookPid = pid; return false; }
+        if (pid == _hookPid)
+        {
+            if (_forked && DateTime.Now - _forkEvidenceAt > ForkEvidenceTtl) ForkedProcesses = false;
+            return false;
+        }
+        if (pid == _priorHookPid)
+        {
+            _forkEvidenceAt = DateTime.Now;
+            (_hookPid, _priorHookPid) = (pid, _hookPid);
+            bool firstProof = !_forked;
+            ForkedProcesses = true;
+            return firstProof;
+        }
+        // An ordinary handover. The process that was speaking is remembered for exactly one
+        // more generation, which is all the alternation test needs.
+        _priorHookPid = _hookPid;
+        _hookPid = pid;
+        return false;
+    }
+
+    /// <summary>Forget both pids — for a session that genuinely restarted (a `startup` or
+    /// `clear` SessionStart), where nothing from the previous incarnation still applies.</summary>
+    public void ClearHookPids()
+    {
+        _hookPid = 0;
+        _priorHookPid = 0;
+        ForkedProcesses = false;
+    }
+
+    public int HookPid => _hookPid;
+    public int PriorHookPid => _priorHookPid;
+
+    public string ForkedTip =>
+        $"TWO processes are writing this session (pids {_hookPid} and {_priorHookPid}). They share one " +
+        "transcript, so the conversation has split in two and each half answers you without seeing the " +
+        "other. Decide which one to keep and close the other; nothing here does it for you.";
+
     public string JobsTip => ActiveJobs == 1
         ? "1 background job it started is still running — it wakes the session when it finishes, so this card is not asking for you"
         : $"{ActiveJobs} background jobs it started are still running — they wake the session when they finish, so this card is not asking for you";
@@ -875,6 +973,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// says what to DO about it, for the same reason.</summary>
     public string StatusDisplay =>
         Closed ? (EndedTabOpen ? "ended · tab open" : ClosedLabel)
+               // Ahead of every other state on purpose: while two processes write one session,
+               // what the card would otherwise say about it is a report on one of two halves.
+               : ForkedProcesses ? "2 processes · forked"
                : _status == SessionStatus.Replaced && _openAsTab ? "replaced · close its tab"
                : WaitingOnWaves ? (_dispatchedRuns > 1 ? $"{_dispatchedRuns} waves running" : "wave running")
                : WaitingOnWatch ? (ActiveWatches > 1 ? $"watching, {ActiveWatches} monitors" : "watching")
@@ -919,6 +1020,15 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
     /// presentation state would let the two drift.</summary>
     private const string MachineWaitBorderColor = "#FF7FB8D8";
 
+    /// <summary>The colour of a forked card. Not in StatusStyles for the same reason as the one
+    /// above — the status underneath is whatever the last process to speak said it was — and
+    /// deliberately its own alarm red rather than the `error` red: an error is the session
+    /// reporting a problem, a fork is the deck reporting that the session is no longer one
+    /// thing. It outranks the machine-wait colour in <see cref="BorderBrush"/>, because Shay
+    /// scans the wall by colour and this is the only state where the card's own words may be
+    /// describing half a conversation.</summary>
+    private const string ForkedBorderColor = "#FFE0544A";
+
     private string ClosedLabel => "closed" + (_endReason is { Length: > 0 } r ? $" ({r})" : "");
 
     /// <summary>Status→style mapping resolver, injected once at startup from config.</summary>
@@ -962,6 +1072,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IBlinkable
         get
         {
             if (_closed) return MakeBrush("#555555");
+            if (ForkedProcesses) return MakeBrush(ForkedBorderColor);
             if (WaitingOnMachine) return MakeBrush(MachineWaitBorderColor);
             var style = ResolveStyle(_status);
             string color = BlinkActive && _altPhase ? style.AltColor ?? "black" : style.Color;

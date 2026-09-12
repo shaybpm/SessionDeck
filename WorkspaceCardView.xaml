@@ -369,6 +369,22 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
+                                    <!-- TWO processes are writing this one session. Its own colour,
+                                         not the chip-blue the others share: every chip beside it
+                                         describes the session, and this one says the card may be
+                                         describing half a conversation. Hidden unless proven. -->
+                                    <TextBlock Text="👥" Foreground="#FFE0544A" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}" Margin="0,0,6,0"
+                                               ToolTip="{Binding ForkedTip}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ForkedProcesses}" Value="False">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <!-- What the session has spent, in input-equivalent tokens
                                          with the cache discount already applied. The raw count
                                          is 5-6x higher and only tracks how long it has run.
