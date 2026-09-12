@@ -106,6 +106,18 @@ he can decide what to send on.
   base to the PARENT, so `gh pr create` with no `--repo` opened a PR against Eyal's repo on
   09-08-2026. `gh repo set-default shaybpm/SessionDeck` is set on this machine; on a fresh
   clone, set it before the first `gh` command.
+- **Verify a push against the remote, not against the exit code.** On 13-09-2026 a
+  `git push -q origin main` returned 0 and the commit never reached origin; it was found only
+  because `origin/main` still looked behind an hour later. `git ls-remote origin main`, or a
+  `git fetch` then `git log --oneline origin/main -1`, is the check.
+- **Two sessions in this one working tree is the normal failure here, and the no-worktree rule
+  above is what makes it likely.** Rule #6 is waived for this repo, so both sessions branch in
+  place - and `git checkout -b` switches the branch under whoever else is working, whose
+  uncommitted files then travel onto your branch. It happened on 13-09-2026 and cost both
+  sessions an hour. The overlap hook is what catches it: it names the other session's id, pid
+  and branch. **When it fires, do not race the file** - back your own edit out by hand (leaving
+  theirs untouched), check the tree back to the branch they were on, and take a worktree under
+  `SessionDeck-worktrees/` for yourself. That is the one case where this repo wants a worktree.
 - Temporary zip/publish artifacts: add the pattern to `.gitignore` *before* creating them.
 
 ## UI language and text direction
