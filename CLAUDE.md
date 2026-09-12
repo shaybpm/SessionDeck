@@ -260,6 +260,29 @@ against a tab reading `Claude-infra` made the one live tab match only the DEAD s
 place that still demands a TITLE match is `ActiveTabSession`: a wrong auto-acknowledge silences a
 real alert, so a fork and its origin sharing a prompt must not resolve there.
 
+**A tab the deck WATCHED close is different evidence from a tab it cannot find, and since
+v0.9.89 it is treated that way.** Everything above is about the second: `no tab matched` is a
+claim about string matching, matching is what breaks, and the fifteen-minute `OrphanSessionTtl`
+is the price of that doubt. The first carries no such doubt — `WitnessClosedTabs` compares the
+exact label a session was already matched to against the tab union, so the string came from the
+tab itself — and it earns `TabClosedTtl`, sixty seconds, with a sharper silence guard: not
+"quiet for fifteen minutes" but "has said nothing since its tab went". `ws.ConnectorSignature`
+is what keeps it honest: a window reloading, connecting or dropping takes a whole instance's
+tabs out of the union at once, so a changed pid set throws the witness away rather than reading
+every session in that window as closed. **It only sees closes that happen while the deck is
+running** — a tab that went during a restart falls back to the slow path, as it should.
+
+The half that made the ghost immortal rather than merely slow was the CLICK. `claude --resume`
+in a terminal was built for a window that DIED carrying its sessions (v0.9.69); it fires on
+"no tab in its window", which is also true when the window is alive and the user closed the tab
+on purpose. Then the click resurrects a session he had finished with, and the resume's own
+`SessionStart` restarts every clock that would have retired the card — so the card outlives each
+attempt to deal with it. Measured 12-09-2026 on `Hourly-Cost`: closed in purple at 10:31:56,
+successor opened in orange ten seconds later, resumed from the deck at 10:41:42 and again at
+10:42:01, neither asked for, and the card was still there ten minutes on. A witnessed close now
+refuses the resume and says so in the status line; a session the deck itself put in a terminal
+carries `ResumedInTerminal` and is exempt from the witness, having no tab by design.
+
 Before theorizing about a blink or status bug, **read the diagnostic log** at
 `%APPDATA%\SessionDeck\logs`. Payload-level checks and the test suite both pass while the
 lifecycle is broken; the log is what shows the actual ordering of hook arrival versus
