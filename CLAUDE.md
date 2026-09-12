@@ -325,6 +325,47 @@ argument for it: it can only ADD a match, and a match only ever PREVENTS a close
 case is a delayed cleanup rather than a deleted card. Exactly one on each side, never two; print
 -mode runs and `replaced` sessions are excluded.
 
+**Where a tab label comes from, and why those two could not be read** (measured 12-09-2026,
+item #4.13.44 — read this before widening the candidate set again). The extension does not choose
+the label: it handles a `rename_tab` request from the CLI and assigns `panelTab.title` verbatim,
+truncating only at 200 characters. **The CLI decides the text, and the CLI is what cuts it to 24
+characters plus `…`** — the shape every long tab on this machine has, which `TabLabelMatches`
+already unwinds with its prefix rule. In the ordinary case that same text is appended to the
+transcript as an `ai-title`, and that is the whole reason matching works at all. `ai-title` and
+`custom-title` (`/rename`) are the ONLY title-bearing entry types a transcript has — verified by
+listing every `type` in both problem files — so when the panel is carrying anything else, **there
+is nothing on disk to read**. Both measured sessions were exactly that: 826bbe09's tab read
+`תוכנית הדרכה Claude בVS …` against its one and only ai-title `תוכנית הדרכה לעובדים ב-Claude VS`,
+and af317457's read `דף צריכת הטוקנים` against `Token consumption page update`. Neither string
+appears in any transcript on this machine, in `sessions-names.json`, or in VSCode's own storage.
+**A resume is what heals it, and nothing else does:** it builds a new panel and titles it from the
+current ai-title, and 826bbe09's tab became `תוכנית הדרכה לעובדים ב-C…` one second after its
+`source=resume` at 22:27:27 — having been unmatchable for the nineteen hours before that. So the
+label is not stale, it is *absent*, and no amount of candidate-widening will ever reach it.
+
+**So v0.9.96 widened the elimination from a pair to a headcount**, because the one-to-one form
+turned out not to fire in the case it was written for. Both mystery tabs above were on the SAME
+card, `.claude`, at the same time, so neither side was ever "exactly one" and neither session was
+ever claimed. Where a label is unreadable *in principle*, a second one is not bad luck — it is the
+ordinary state of the card that carries every management topic. The rule now reads **at least as
+many unowned tabs as tabless sessions**: then every one of those sessions has a tab, which is as
+certain in aggregate as the single pair was, with no ordering to guess at. **A label is still
+adopted only on the single pair** — with two of each the session is known to have a tab but not
+*which*, and a wrong `MatchedTabLabel` would put a wrong title on the card and aim
+`WitnessClosedTabs` at the wrong tab. `OpenAsTab` alone carries the three things that matter, and
+one of them had to be taught this: `tabIsHere` in the click path reads the tab LABELS, so spending
+the mystery tab drops `UnexplainedTabs` to zero and would have called the session proven-tabless
+and resumed it in a terminal — v0.9.93's bug, reintroduced by its own fix one line away. It now
+reads `OpenAsTab` first.
+
+**Fewer tabs than sessions is left alone on purpose, and the shape is now logged so that can be
+revisited with numbers.** Counting still proves something there (at most K of the M own a tab) but
+not *which*, and handing the tabs to the K most recently active would expose the rest to the
+sweep — which is the exact trade-off Shay settled on 12-09-2026 after four live cards were lost in
+two days. The bail-out used to be a silent `return`, so how often each shape occurs was not
+answerable from the log; `correlate ... elimination shape K unowned tab(s) vs M tabless
+session(s)` now fires once per change per card. Grep that before proposing to widen it further.
+
 **And since v0.9.92 `no tab matched` may only close a card when every tab already has an owner**
 (`ws.UnexplainedTabs`). While one tab answers to nobody, that tab might be this session's, so the
 sweep is not entitled to the conclusion; ↻ still closes it, because a manual reconcile is the
