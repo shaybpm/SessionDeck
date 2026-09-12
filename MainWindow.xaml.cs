@@ -583,6 +583,7 @@ public partial class MainWindow : Window
 
     private void RefreshAllMetadata()
     {
+        RefreshWalletReadings();
         foreach (var ws in Vm.Workspaces)
             RefreshMetadata(ws);
         RefreshTranscriptTitles();
@@ -3183,6 +3184,32 @@ public partial class MainWindow : Window
         if (groups.Count == 0) return null;
         string held = HeldModifierName();
         return groups.FirstOrDefault(g => NormalizeModifier(g.Modifier) == held);
+    }
+
+    /// <summary>Put the current wallet reading on every visible card (Shay, 13-09-2026).
+    ///
+    /// On the 10s metadata tick rather than on a timer of its own: the file behind it is
+    /// rewritten every five minutes, so anything faster reads the same bytes again, and the
+    /// reader itself does nothing but a stat until the writer has been round. The GROUP CARDS
+    /// are the point — they are the three instances, one Claude account each — but the parent
+    /// and every ordinary card are done too, since a window that is not one of the three
+    /// spends the default wallet and that is just as much the answer to "another session
+    /// here, or not".</summary>
+    private void RefreshWalletReadings()
+    {
+        QuotaReader.Refresh();
+        foreach (var ws in Vm.Workspaces)
+        {
+            ApplyWallet(ws);
+            foreach (var card in ws.GroupCards) ApplyWallet(card);
+        }
+    }
+
+    private void ApplyWallet(WorkspaceViewModel card)
+    {
+        string slot = AppConfig.QuotaSlotFor(card.GroupId);
+        string label = GroupById(card.GroupId)?.Name ?? "Default Claude account";
+        card.ApplyQuota(QuotaReader.For(slot), label);
     }
 
     /// <summary>A group by its id, whatever card it belongs to (the CLI's --group).</summary>

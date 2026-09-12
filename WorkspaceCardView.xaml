@@ -102,6 +102,28 @@
                                         <Run Text="📑"/> <Run Text="{Binding ClaudeTabCount, Mode=OneWay}"/>
                                     </TextBlock>
                                 </Border>
+                                <!-- the wallet this card spends: weekly/5-hour percent, then
+                                     how long until each resets (Shay, 13-09-2026). Read before
+                                     opening another session here, which is why it sits in the
+                                     header and not in an expanded view. LeftToRight and the
+                                     digits kept together: it is a pure ASCII token, and an
+                                     RTL card would otherwise reorder the two halves. -->
+                                <Border Background="#33FFFFFF" CornerRadius="8" Padding="7,1" Margin="6,1,0,1"
+                                        VerticalAlignment="Center" ToolTip="{Binding QuotaTooltip}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasQuota}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Foreground="{Binding QuotaBrush}" FlowDirection="LeftToRight"
+                                               FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}">
+                                        <Run Text="⛽"/> <Run Text="{Binding QuotaText, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </Border>
                             </StackPanel>
                         </WrapPanel>
                         <TextBlock Text="{Binding Description}" Foreground="#FFAAAAAA" FontSize="{Binding DataContext.TasksPanel.FontScale, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource FontScale}, ConverterParameter=11}"
