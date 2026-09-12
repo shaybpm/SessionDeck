@@ -2679,6 +2679,8 @@ public partial class MainWindow : Window
             if (matched != null) s.MatchedTabLabel = matched;
         }
 
+        ClaimTheLastTabByElimination(ws, remaining);
+
         // A closed or phantom session claims nothing: both are outside the orphan sweep's
         // reach, so a tab spent on one would starve a session the sweep CAN close — turning
         // a leftover into a false close of something live.
@@ -2735,6 +2737,46 @@ public partial class MainWindow : Window
                                           $"ws=\"{ws.DisplayTitle}\" — closing the card in {TabClosedTtl.TotalSeconds:0}s unless it speaks");
             }
         }
+    }
+
+    /// <summary>When exactly one open session found no tab and exactly one tab found no
+    /// session, they are each other's. Counting is not string matching, and it is right in the
+    /// one case matching cannot reach: a tab whose label appears in NO field of the session's
+    /// transcript, so no amount of candidate-widening will ever find it.
+    ///
+    /// Measured 12-09-2026, which is what it is for. Session 826bbe09 has had a tab reading
+    /// "תוכנית הדרכה Claude בVS …" since 04:11:41, one second after it started; its transcript's
+    /// only ai-title reads "תוכנית הדרכה לעובדים ב-Claude VS" and its prompts read something else
+    /// again. The label is in no transcript on this machine. So the session could not match its
+    /// own tab for its whole life, and the orphan sweep closed its live card at 10:44:07 and
+    /// again at 11:09:13, each time with that tab sitting in the list it printed.
+    ///
+    /// Safe by direction, which is the whole argument for doing it by elimination at all: this
+    /// can only ADD a match, and a match only ever PREVENTS a close. The worst case is a dead
+    /// session holding a tab it does not own for one sweep longer — the cost of a delay, never
+    /// of a deletion. Auto-acknowledge is untouched: ActiveTabSession demands a TITLE match and
+    /// never consults this.
+    ///
+    /// Exactly one on each side, no more: two of either is a guess, and a guess here would put
+    /// a tab on the wrong card. Print-mode sessions are excluded — a headless run has no tab by
+    /// construction, so it would take the leftover from whoever actually owns it. A `replaced`
+    /// session is excluded for the reason it already picks last: its successor usually carries
+    /// the same label, and letting the dead one claim by elimination would undo that.</summary>
+    private static void ClaimTheLastTabByElimination(WorkspaceViewModel ws, Dictionary<string, int> remaining)
+    {
+        var unclaimed = remaining.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
+        if (unclaimed.Count != 1) return;
+        var orphaned = ws.Sessions.Where(s => !s.Closed && !s.Phantom && !s.OpenAsTab && !s.PrintMode
+                                              && s.Status != SessionStatus.Replaced && Correlatable(s)).ToList();
+        if (orphaned.Count != 1) return;
+        var session = orphaned[0];
+        string label = unclaimed[0];
+        remaining[label]--;
+        session.OpenAsTab = true;
+        if (session.MatchedTabLabel != label)
+            LogService.Info("correlate", $"session={session.SessionId} claimed the only unclaimed tab " +
+                                         $"\"{label}\" by elimination ws=\"{ws.DisplayTitle}\" — no title of its own matches it");
+        session.MatchedTabLabel = label;
     }
 
     /// <summary>Mark the closed session behind a Claude tab that is still open, so the card
