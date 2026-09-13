@@ -364,10 +364,15 @@ public sealed class WorkspaceViewModel : INotifyPropertyChanged
         {
             if (_expanded == value) return;
             _expanded = value;
+            ExpandedAt = value ? DateTime.Now : null;
             RefreshSessionVisibility();
             Raise();
         }
     }
+
+    /// <summary>When ▼ was pressed, so the card can collapse itself again — see
+    /// MainWindow.RefreshExpandedCards. Runtime only, like Expanded itself.</summary>
+    public DateTime? ExpandedAt { get; private set; }
 
     public ObservableCollection<SessionViewModel> Sessions { get; } = new();
 

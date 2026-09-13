@@ -297,7 +297,7 @@
                 <TextBox x:Name="RunTaskBox" VerticalContentAlignment="Center" FontSize="13"
                          Background="#FF2A2A2A" Foreground="White" BorderBrush="#FF444444"
                          CaretBrush="White" Padding="6,3" FlowDirection="LeftToRight"
-                         KeyDown="RunTaskBox_KeyDown"
+                         KeyDown="RunTaskBox_KeyDown" TextChanged="RunTaskBox_TextChanged"
                          ToolTip="A task number, e.g. 4.13 or 4.13.19. Enter runs it. Add “fast”/“מהיר” for a coordinator's short form, and a group word (“green”/“ירוק”) — or hold its modifier — to pick which account it opens in."/>
             </DockPanel>
             <DockPanel Grid.Column="0" LastChildFill="True">

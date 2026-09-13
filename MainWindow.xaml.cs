@@ -594,6 +594,7 @@ public partial class MainWindow : Window
         // runs, and a stale count is a decision made on someone else's evidence.
         foreach (var ws in Vm.Workspaces) ReapplyTabCorrelation(ws);
         RefreshOrphanSessions();
+        RefreshExpandedCards();
         // A permission dialog freezes the transcript, so the scan above may find nothing
         // new — the threshold still has to be re-checked against the stored pending call.
         if (EvaluateAllPendingWaits())
@@ -601,6 +602,46 @@ public partial class MainWindow : Window
             RefreshBlinkAndSummary();
             QueueSave();
         }
+    }
+
+    // ---- an expanded card releases itself (2026-09-13) ----
+
+    /// <summary>How long ▼ keeps a card showing its closed sessions before it collapses again.
+    ///
+    /// Long enough to read a closed row and click it, short enough that a mis-click next to ▶ and
+    /// ⋯ is not permanent. Five minutes, and the reason it needs a bound at all is that the state
+    /// is INVISIBLE from where the rows are: the only thing that says a card is expanded is the
+    /// tint on its own ▼, which is off-screen the moment the deck is scrolled past that header.
+    /// A card left expanded then reads exactly like a deck that failed to retire a dead session —
+    /// Shay reported three closed sessions "still showing" on the purple .claude card
+    /// (13-09-2026) while the orange card beside it, same code and fifteen closed sessions, hid
+    /// every one of them. Not persisted, for the same reason: a restart already clears it.</summary>
+    private static readonly TimeSpan ExpandedCardTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>Collapse cards whose expansion has aged out. Runs on the 10s metadata tick, so
+    /// the release is late by at most that.</summary>
+    private void RefreshExpandedCards()
+    {
+        bool any = false;
+        // Vm.Cards, not Vm.Workspaces: for a split workspace the parent card has no view and
+        // therefore no ▼ to press, and it is the GROUP card that carries the state.
+        foreach (var card in Vm.Cards.ToList())
+        {
+            if (!card.Expanded || card.ExpandedAt is not { } at) continue;
+            // Every tick an expansion is still standing, so the trail says which card was open
+            // and for how long. Bounded by the TTL below, and it is what separates "the sweep
+            // never saw it" from "someone pressed ▼ again" after the fact — the two answers a
+            // card that quietly stopped showing its closed sessions could have.
+            LogService.Debug("cards", $"ws=\"{card.DisplayTitle}\" expanded for " +
+                $"{(DateTime.Now - at).TotalSeconds:0}s of {ExpandedCardTtl.TotalSeconds:0}s");
+            if (DateTime.Now - at < ExpandedCardTtl) continue;
+            card.Expanded = false;   // the setter re-runs the visibility pass
+            any = true;
+            LogService.Info("cards", $"ws=\"{card.DisplayTitle}\" collapsed itself after " +
+                $"{ExpandedCardTtl.TotalMinutes:0} min expanded — closed sessions hidden again");
+        }
+        // "Open only" reads Expanded, so a card that just collapsed may also leave the deck.
+        if (any) ApplyDeckVisibility();
     }
 
     // ---- phantom sessions (issue 2026-07-19) ----
@@ -4251,12 +4292,39 @@ public partial class MainWindow : Window
            || word.Equals("--fast", StringComparison.OrdinalIgnoreCase)
            || word == "מהיר";
 
+    /// <summary>Paint the box itself when a run was refused, and log the attempt either way.
+    ///
+    /// The refusal used to exist only as a line in the status bar, and the deck writes to that
+    /// bar constantly — a session opening, a card being clicked — so the message was gone within
+    /// seconds and the button simply looked dead. Shay hit exactly that on 13-09-2026: the box
+    /// held "8..0" (two dots, a typo), nothing could match it, and all he saw was a press that
+    /// did nothing. Nothing reached the diagnostic log either, so afterwards the only evidence
+    /// was the text still sitting in the box — a successful run clears it.
+    ///
+    /// Deliberately NOT repaired into "8.0": an empty segment is unambiguous, but silently
+    /// correcting a number LAUNCHES something, and a typo that opens a session is worse than a
+    /// typo that is rejected out loud.</summary>
+    private void MarkRunBoxRejected(bool rejected)
+    {
+        RunTaskBox.BorderBrush = new System.Windows.Media.SolidColorBrush(rejected
+            ? System.Windows.Media.Color.FromRgb(0xC0, 0x50, 0x45)
+            : System.Windows.Media.Color.FromRgb(0x44, 0x44, 0x44));
+        RunTaskBox.BorderThickness = new Thickness(rejected ? 2 : 1);
+    }
+
+    /// <summary>Typing is the acknowledgement — the mark clears as soon as the number is being
+    /// corrected, so it never outlives the mistake it is reporting.</summary>
+    private void RunTaskBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        => MarkRunBoxRejected(false);
+
     private void RunTypedTask(bool fastRequested)
     {
         string typed = RunTaskBox.Text.Trim();
         if (typed.Length == 0)
         {
             SetStatus("Type a task number first, e.g. 4.13.19");
+            MarkRunBoxRejected(true);
+            LogService.Info("tasks", "run refused: the box is empty");
             return;
         }
         // Strip the trailing words before resolving: the number has to reach FindByNumber
@@ -4278,8 +4346,13 @@ public partial class MainWindow : Window
         if (Vm.TasksPanel.FindByNumber(number) is not { } task)
         {
             SetStatus($"No task {number} in the tasks file — it may be closed, or have no directory recorded");
+            MarkRunBoxRejected(true);
+            LogService.Info("tasks", $"run refused: typed \"{typed}\" resolved to number \"{number}\", " +
+                                     "which is in neither the list on screen nor the launch index");
             return;
         }
+        LogService.Info("tasks", $"run \"{typed}\" → task {task.Id} \"{task.Name}\"" +
+                                 (group != null ? $" in \"{group.Id}\"" : "") + (fastRequested ? " (fast)" : ""));
         RunTaskBox.Clear();
         // Whether the number is a coordinator's, and what to say when it is not, is decided in
         // HandleTaskActivate so that every entry point answers the same way.
