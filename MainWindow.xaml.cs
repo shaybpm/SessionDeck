@@ -594,6 +594,7 @@ public partial class MainWindow : Window
         // runs, and a stale count is a decision made on someone else's evidence.
         foreach (var ws in Vm.Workspaces) ReapplyTabCorrelation(ws);
         RefreshOrphanSessions();
+        RefreshExpandedCards();
         // A permission dialog freezes the transcript, so the scan above may find nothing
         // new — the threshold still has to be re-checked against the stored pending call.
         if (EvaluateAllPendingWaits())
@@ -601,6 +602,40 @@ public partial class MainWindow : Window
             RefreshBlinkAndSummary();
             QueueSave();
         }
+    }
+
+    // ---- an expanded card releases itself (2026-09-13) ----
+
+    /// <summary>How long ▼ keeps a card showing its closed sessions before it collapses again.
+    ///
+    /// Long enough to read a closed row and click it, short enough that a mis-click next to ▶ and
+    /// ⋯ is not permanent. Five minutes, and the reason it needs a bound at all is that the state
+    /// is INVISIBLE from where the rows are: the only thing that says a card is expanded is the
+    /// tint on its own ▼, which is off-screen the moment the deck is scrolled past that header.
+    /// A card left expanded then reads exactly like a deck that failed to retire a dead session —
+    /// Shay reported three closed sessions "still showing" on the purple .claude card
+    /// (13-09-2026) while the orange card beside it, same code and fifteen closed sessions, hid
+    /// every one of them. Not persisted, for the same reason: a restart already clears it.</summary>
+    private static readonly TimeSpan ExpandedCardTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>Collapse cards whose expansion has aged out. Runs on the 10s metadata tick, so
+    /// the release is late by at most that.</summary>
+    private void RefreshExpandedCards()
+    {
+        bool any = false;
+        // Vm.Cards, not Vm.Workspaces: for a split workspace the parent card has no view and
+        // therefore no ▼ to press, and it is the GROUP card that carries the state.
+        foreach (var card in Vm.Cards.ToList())
+        {
+            if (!card.Expanded || card.ExpandedAt is not { } at) continue;
+            if (DateTime.Now - at < ExpandedCardTtl) continue;
+            card.Expanded = false;   // the setter re-runs the visibility pass
+            any = true;
+            LogService.Info("cards", $"ws=\"{card.DisplayTitle}\" collapsed itself after " +
+                $"{ExpandedCardTtl.TotalMinutes:0} min expanded — closed sessions hidden again");
+        }
+        // "Open only" reads Expanded, so a card that just collapsed may also leave the deck.
+        if (any) ApplyDeckVisibility();
     }
 
     // ---- phantom sessions (issue 2026-07-19) ----
