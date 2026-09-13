@@ -55,6 +55,7 @@ order:
 | startup / shutdown / persistence | `LoadFromConfig`, `BuildConfig`. Config to view-model and back. |
 | workspaces | add, remove, hide, `RefreshMetadata` (branch + Peacock colour off the disk). |
 | phantom / orphan / ghost sweeps | three different flavours of "this session is not really alive". |
+| expanded-card release | `RefreshExpandedCards`: ▼ expires, so a card stops showing its closed sessions on its own. |
 | transcript titles | `RefreshTranscriptTitles`, background scan, only files whose mtime moved. |
 | waiting inference | `EvaluatePendingWait`. The single subtlest function in the codebase. |
 | historical sessions | past sessions read straight from the transcripts folder on expand. |

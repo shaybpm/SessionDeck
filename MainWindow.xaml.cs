@@ -628,6 +628,12 @@ public partial class MainWindow : Window
         foreach (var card in Vm.Cards.ToList())
         {
             if (!card.Expanded || card.ExpandedAt is not { } at) continue;
+            // Every tick an expansion is still standing, so the trail says which card was open
+            // and for how long. Bounded by the TTL below, and it is what separates "the sweep
+            // never saw it" from "someone pressed ▼ again" after the fact — the two answers a
+            // card that quietly stopped showing its closed sessions could have.
+            LogService.Debug("cards", $"ws=\"{card.DisplayTitle}\" expanded for " +
+                $"{(DateTime.Now - at).TotalSeconds:0}s of {ExpandedCardTtl.TotalSeconds:0}s");
             if (DateTime.Now - at < ExpandedCardTtl) continue;
             card.Expanded = false;   // the setter re-runs the visibility pass
             any = true;
@@ -4286,12 +4292,39 @@ public partial class MainWindow : Window
            || word.Equals("--fast", StringComparison.OrdinalIgnoreCase)
            || word == "מהיר";
 
+    /// <summary>Paint the box itself when a run was refused, and log the attempt either way.
+    ///
+    /// The refusal used to exist only as a line in the status bar, and the deck writes to that
+    /// bar constantly — a session opening, a card being clicked — so the message was gone within
+    /// seconds and the button simply looked dead. Shay hit exactly that on 13-09-2026: the box
+    /// held "8..0" (two dots, a typo), nothing could match it, and all he saw was a press that
+    /// did nothing. Nothing reached the diagnostic log either, so afterwards the only evidence
+    /// was the text still sitting in the box — a successful run clears it.
+    ///
+    /// Deliberately NOT repaired into "8.0": an empty segment is unambiguous, but silently
+    /// correcting a number LAUNCHES something, and a typo that opens a session is worse than a
+    /// typo that is rejected out loud.</summary>
+    private void MarkRunBoxRejected(bool rejected)
+    {
+        RunTaskBox.BorderBrush = new System.Windows.Media.SolidColorBrush(rejected
+            ? System.Windows.Media.Color.FromRgb(0xC0, 0x50, 0x45)
+            : System.Windows.Media.Color.FromRgb(0x44, 0x44, 0x44));
+        RunTaskBox.BorderThickness = new Thickness(rejected ? 2 : 1);
+    }
+
+    /// <summary>Typing is the acknowledgement — the mark clears as soon as the number is being
+    /// corrected, so it never outlives the mistake it is reporting.</summary>
+    private void RunTaskBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        => MarkRunBoxRejected(false);
+
     private void RunTypedTask(bool fastRequested)
     {
         string typed = RunTaskBox.Text.Trim();
         if (typed.Length == 0)
         {
             SetStatus("Type a task number first, e.g. 4.13.19");
+            MarkRunBoxRejected(true);
+            LogService.Info("tasks", "run refused: the box is empty");
             return;
         }
         // Strip the trailing words before resolving: the number has to reach FindByNumber
@@ -4313,8 +4346,13 @@ public partial class MainWindow : Window
         if (Vm.TasksPanel.FindByNumber(number) is not { } task)
         {
             SetStatus($"No task {number} in the tasks file — it may be closed, or have no directory recorded");
+            MarkRunBoxRejected(true);
+            LogService.Info("tasks", $"run refused: typed \"{typed}\" resolved to number \"{number}\", " +
+                                     "which is in neither the list on screen nor the launch index");
             return;
         }
+        LogService.Info("tasks", $"run \"{typed}\" → task {task.Id} \"{task.Name}\"" +
+                                 (group != null ? $" in \"{group.Id}\"" : "") + (fastRequested ? " (fast)" : ""));
         RunTaskBox.Clear();
         // Whether the number is a coordinator's, and what to say when it is not, is decided in
         // HandleTaskActivate so that every entry point answers the same way.
