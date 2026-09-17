@@ -65,6 +65,10 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, DateTime> _pendingPins = new();
     // Sync paths already reported as unroutable — dedup so the heartbeat can't flood the log.
     private readonly HashSet<string> _loggedUnroutedSyncs = new(StringComparer.OrdinalIgnoreCase);
+    // Last tab list written to the sync line per workspace id, so the line spells the list out
+    // on a change instead of on every 2s tick (OnVscodeSync). Runtime only: a restart writes
+    // each card's list once more, which is what you want on the first line of a new log.
+    private readonly Dictionary<int, string> _syncTabList = new();
     private bool _titleScanRunning;
 
     public int MonitorCount => _monitors.Count;
@@ -2634,9 +2638,21 @@ public partial class MainWindow : Window
             // The extension is the fresher branch source (event-driven vs our 10s poll).
             if (!string.IsNullOrEmpty(sync.Branch)) ws.Branch = sync.Branch;
             var labels = ApplyConnectorState(ws);
+            // The tab list is almost the whole weight of this line and it grows with the window:
+            // with the 38 Claude tabs of one .claude window it is ~600 of the line's ~690 chars,
+            // and at a sync every 2s that alone wrote 7.2 MB of the 10 MB daily cap on
+            // 17-09-2026. The file hit the cap at 05:53 and recorded NOTHING for the rest of the
+            // day — including every click of the failure it was being read for, which is how a
+            // debug log stops being a debug log. Printed in full when the list CHANGES, which is
+            // the only tick on which it carries information. The line itself still fires every
+            // tick, so the heartbeat and the pid/focused/windows/active fields are untouched.
+            string tabList = string.Join(" | ", labels);
+            bool tabsSame = _syncTabList.TryGetValue(ws.Id, out var lastTabs) && lastTabs == tabList;
+            _syncTabList[ws.Id] = tabList;
             LogService.Debug("sync", $"ws=\"{ws.DisplayTitle}\" pid={sync.Pid} focused={sync.Focused}" +
                 $" windows={ConnectorCount(ws)}" +
-                $" active=\"{ws.ActiveClaudeTabLabel}\" tabs=[{string.Join(" | ", labels)}]");
+                $" active=\"{ws.ActiveClaudeTabLabel}\" " +
+                (tabsSame ? $"tabs={labels.Count} (unchanged)" : $"tabs=[{tabList}]"));
 
             if (ReapplyTabCorrelation(ws))
             {
@@ -3089,12 +3105,32 @@ public partial class MainWindow : Window
     /// already zero and the claim released no guard.</summary>
     private static void LogEliminationHeadcount(WorkspaceViewModel ws, List<SessionViewModel> claimed,
                                                 int tabs, bool partial)
-        => LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" {claimed.Count} tabless session(s) " +
-                                        $"[{string.Join(", ", claimed.Select(s => s.SessionId[..8]))}] " +
-                                        $"each hold one of {tabs} unowned tab(s) by headcount — " +
-                                        "which tab is whose is unknown, so no label is adopted" +
-                                        (partial ? " (partial: every unowned tab is a closed session's " +
-                                                   "leftover, so this released no sweep guard)" : ""));
+    {
+        // This runs off the sync path, so unguarded it is one INFO line per tick: 13,069 of them
+        // on 17-09-2026, 2.75 MB, every one identical. Info is documented as recording state
+        // CHANGES and nothing else (LogService), and LogEliminationShape right above already
+        // dedups for exactly that reason — this one was simply left out. The key carries the
+        // session ids and not just their count, so a swap of WHICH sessions the claim covers
+        // still gets its line.
+        //
+        // A stale key cannot swallow a real transition: every path that leaves this branch (no
+        // orphan, no unowned tab, the partial bail-out, the single certain pair) moves one of
+        // the counts LogEliminationShape keys on, so the departure and the return are both on
+        // the line above whatever this one decides.
+        string shape = $"{tabs}:{partial}:{string.Join(",", claimed.Select(s => s.SessionId))}";
+        if (_headcountClaim.TryGetValue(ws.Id, out var last) && last == shape) return;
+        _headcountClaim[ws.Id] = shape;
+        LogService.Info("correlate", $"ws=\"{ws.DisplayTitle}\" {claimed.Count} tabless session(s) " +
+                                     $"[{string.Join(", ", claimed.Select(s => s.SessionId[..8]))}] " +
+                                     $"each hold one of {tabs} unowned tab(s) by headcount — " +
+                                     "which tab is whose is unknown, so no label is adopted" +
+                                     (partial ? " (partial: every unowned tab is a closed session's " +
+                                                "leftover, so this released no sweep guard)" : ""));
+    }
+
+    /// <summary>Last headcount claim logged per workspace id, so the line above fires on a change
+    /// instead of on every sync. Runtime only: a restart re-logs each card once.</summary>
+    private static readonly Dictionary<int, string> _headcountClaim = new();
 
     /// <summary>Last (tabs:sessions) shape logged per workspace id, so the line above fires on a
     /// change instead of on every sync. Runtime only: a restart re-logs each card once.</summary>
