@@ -316,7 +316,7 @@ public sealed class CommandExecutor
         foreach (var g in _window.SessionGroups)
         {
             string mod = g.Modifier.Length == 0 ? "(no modifier)" : g.Modifier;
-            sb.AppendLine($"{g.Id,-8} {mod,-12} {_window.GroupStateText(g),-34} {g.Name}");
+            sb.AppendLine($"{g.Id,-8} {mod,-12} {_window.GroupStateText(g),-42} {g.Name}");
             sb.AppendLine($"{"",-8} marker \"{g.TitleMarker}\"  in {g.WorkspacePath}");
         }
         return Ok(sb.ToString().TrimEnd());
