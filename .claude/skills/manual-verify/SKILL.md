@@ -82,6 +82,31 @@ Prerequisite: the VSIX is installed and **every VSCode window has been reloaded*
 - [ ] An old session that can't be resumed shows a status-bar message instead of opening an empty tab.
 - [ ] Long titles wrap rather than truncate; hovering a session card lightens its background.
 
+### 6a. Closing a live session's tab by session id (0.9.104 / connector 0.6.16)
+
+The case that needs a human: two tabs carrying the SAME label. The by-label close refuses
+one of those by design, so this is the only path that reaches it.
+
+```powershell
+SessionDeck.exe session new <workspace id> --no-focus     # twice: two untitled sessions
+SessionDeck.exe list                                      # read the two new ids
+SessionDeck.exe session close-tab --id <the first id>
+```
+
+- [ ] Both new tabs read "Claude Code" (an unprompted session keeps the label VSCode gave it).
+- [ ] **The right tab closes** — the one whose id was named, not the other, not the active one.
+- [ ] **The second tab stays open and alive**: clicking its card reveals it, nothing was resumed.
+- [ ] The window's previously active tab is active again afterwards.
+- [ ] Output → "SessionDeck" logs `closeSession <id> by id` then `closed "Claude Code"`.
+- [ ] Repeat with the target's OWN tab active first: it still closes, and the log shows the
+      extra step onto a neighbouring tab that makes the reveal observable.
+- [ ] `session close-tab --id` of a session whose tab was already closed by hand: the log says
+      the reveal RESUMED it into a new tab and that the tab was closed again — and no card in
+      the deck is left working. (It is the one branch that cannot be reached by inspection.)
+- [ ] `session end --id <id> --close-tab` does both, and a plain `session end` touches no tab.
+- [ ] A window still on 0.6.15 refuses with "cannot close a tab by session id", and the log
+      shows nothing was pushed to it.
+
 ## 7. Blink and auto-acknowledge
 
 The subtlest area — most historical bugs live here.
