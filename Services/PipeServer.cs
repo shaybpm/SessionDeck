@@ -61,6 +61,15 @@ public sealed class VscodeConnection
     /// before, which is exactly what it did anyway.</summary>
     public bool SupportsTerminalResume => VersionAtLeast(0, 6, 15);
 
+    /// <summary>closeSession with ById (v0.6.16): identify the tab through Claude Code's own
+    /// id→panel registry instead of by label, for a session that is still ALIVE. It is the only
+    /// way to close the tab of a session whose label is shared — six script-opened sessions are
+    /// six tabs called "Claude Code" — and it is refused to the `replaced` path, where the
+    /// session is dead and a reveal would resume it. An older window would drop the flag and
+    /// fall back to the label match, which is the case this exists to fix, so the deck asks
+    /// only a window that reported 0.6.16.</summary>
+    public bool SupportsCloseSessionById => VersionAtLeast(0, 6, 16);
+
     private bool VersionAtLeast(int major, int minor, int patch)
     {
         var parts = Version.Split('.');

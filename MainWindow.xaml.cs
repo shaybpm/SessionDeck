@@ -3686,9 +3686,7 @@ public partial class MainWindow : Window
                 LogService.Info("close", $"session={session.SessionId} closeSession NOT sent to pid={conn.Pid}: {why}");
             return (false, why);
         }
-        var labels = new List<string>(session.LabelCandidates);
-        foreach (var t in new[] { session.CustomTitle, session.TabTitle, session.AutoTitle, session.MatchedTabLabel })
-            if (t is { Length: > 0 } && !labels.Contains(t)) labels.Add(t);
+        var labels = TabLabelsOf(session);
         if (labels.Count == 0) return (false, "the session has no title to recognise its tab by");
         if (!conn.TrySend(new { Cmd = "closeSession", SessionId = session.SessionId, Labels = labels }))
         {
@@ -3697,6 +3695,50 @@ public partial class MainWindow : Window
         }
         LogService.Info("close", $"session={session.SessionId} closeSession → pid={conn.Pid} " +
                                  $"(attempt {session.CloseTabAttempts}, ext {conn.Version}) labels=[{string.Join(" | ", labels)}]");
+        return (true, "");
+    }
+
+    /// <summary>Every string this session's tab might be carrying, best first.</summary>
+    private static List<string> TabLabelsOf(SessionViewModel session)
+    {
+        var labels = new List<string>(session.LabelCandidates);
+        foreach (var t in new[] { session.CustomTitle, session.TabTitle, session.AutoTitle, session.MatchedTabLabel })
+            if (t is { Length: > 0 } && !labels.Contains(t)) labels.Add(t);
+        return labels;
+    }
+
+    /// <summary>`sessiondeck session close-tab --id` (and `session end --close-tab`): close a LIVE
+    /// session's VSCode tab, identified by its session id rather than by its label.
+    ///
+    /// The one thing it does that RequestCloseReplacedTab cannot: a session that was opened by a
+    /// script and never prompted keeps the tab VSCode gave it, "Claude Code", so a handful of them
+    /// are a handful of identical labels and the by-label close refuses every one (18-09-2026, six
+    /// sessions opened over the Alfred channel, four tabs left open for Shay to close by hand).
+    /// The extension resolves the id through Claude Code's own id→panel registry — see
+    /// closeClaudeTabById — which is safe here and not on the `replaced` path because the session
+    /// is alive: its panel exists, so the reveal reveals rather than resumes.
+    ///
+    /// No attempt bookkeeping and no retry window: this is an explicit request, not a sweep, and a
+    /// caller that asks twice means it twice. The answer says only that the ask was DELIVERED — the
+    /// extension decides what it may close, and says so in its own Output channel.</summary>
+    public (bool, string) CloseSessionTab(string sessionId)
+    {
+        if (Vm.FindSession(sessionId) is not { } found) return (false, $"unknown session id {sessionId}");
+        var (ws, session) = found;
+        if (session.Status == SessionStatus.Replaced)
+            return (false, "this session was killed by the switch-session relay — the deck closes its tab on its own, by label, because revealing a dead session revives it");
+        var conn = FindConnector(ws, session);
+        if (conn == null) return (false, "no VSCode connector for this workspace");
+        if (!conn.SupportsCloseSessionById)
+            return (false, $"the VSCode window's SessionDeck extension ({(conn.Version.Length > 0 ? conn.Version : "pre-0.6.12")}) cannot close a tab by session id — reload that window to update it");
+        var labels = TabLabelsOf(session);
+        if (!conn.TrySend(new { Cmd = "closeSession", SessionId = sessionId, Labels = labels, ById = true }))
+        {
+            _connectors.Remove(conn);
+            return (false, "connector connection lost");
+        }
+        LogService.Info("close", $"session={sessionId} closeSession by id → pid={conn.Pid} " +
+                                 $"(ext {conn.Version}) labels=[{string.Join(" | ", labels)}]");
         return (true, "");
     }
 

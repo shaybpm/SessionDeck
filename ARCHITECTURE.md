@@ -117,6 +117,11 @@ focused, and delegates opening a session to Claude Code's own `claude-vscode.edi
 terminal fallback. `closeSession` (0.6.12) rides on that same reveal: Claude Code's id→panel
 registry brings the named session's tab to the front, and the tab that became active is closed
 — by a UNIQUE label only, never by revealing the session (a reveal revives a dead one).
+`closeSession` with `ById` (0.6.16, `closeClaudeTabById`) makes the opposite trade for a session
+that is still ALIVE, which is the only way to reach one of several tabs all called "Claude Code":
+it does reveal by id, and checks three things before closing anything — a Claude tab is in front,
+the tab count did not grow (a count that grew means the reveal RESUMED the session into a new tab,
+which is closed again at once), and if the active tab did not move, its label must agree.
 `newSession` with `AfterSessionId` / `NoFocus` (0.6.14) reveals a live anchor session's tab first so
 VSCode places the new tab beside it, then hands the window's previously active tab back.
 `hooks/sessiondeck-hook.ps1` translates each hook event into one CLI call, swallows every

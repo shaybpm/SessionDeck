@@ -54,6 +54,19 @@ removed. Run it against the exe you actually built.
 installer only. A card can stay blue, blink wrongly or go quiet while all 38 pass —
 see "Debugging status and blink" below.
 
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\close-tab.tests.ps1
+```
+
+15 cases over `session close-tab` / `session end --close-tab`. It needs the INSTALLED deck
+running, because it stands a fake VSCode connector on the named pipe and reads back the exact
+JSON the deck pushes — which is how the whole deck half is provable without touching one of
+Shay's real windows, including the 0.6.16 capability gate refusing an older one. It must run
+**in the tool's own PowerShell process**, not a nested `pwsh -File`: `WinExe` means the CLI
+writes through `AttachConsole(ATTACH_PARENT_PROCESS)`, so a parent that HAS a console gets the
+output on screen and the redirect file comes back empty. The extension half is out of its
+reach and still needs a window running the new connector.
+
 ## Versioning
 
 Every code change bumps `<Version>` in `SessionDeck.csproj`. Three versions move
@@ -437,6 +450,25 @@ only ever bore on whether the shape is COMMON, never on whether the claim is SAF
 would have been counting is one where a live card sits exposed with nothing in the way.
 `ClaudeCode-SessionDeckEliminationShape` still runs on 18-09-2026, now to report how often each
 half actually fires rather than to decide anything.
+
+**Closing a tab ON PURPOSE is the one place the reveal is allowed back in** (v0.9.104 / connector
+0.6.16, `session close-tab --id` and `session end --close-tab`). Everything above is about a tab
+the deck has to RECOGNISE, and every rule there follows from labels being the only evidence. A
+caller that already knows the session id and knows the session is ALIVE is in a different
+position, and it is the position a script is always in: six sessions opened over the Alfred
+channel and ended again left four tabs reading "Claude Code" for Shay to close by hand
+(17-09-2026, #4.83.7), because by-label closing refuses a shared label by design and always
+will. So `ById` reveals through Claude Code's own id→panel registry, which is exact. **The
+dd17e1bb rule is untouched and is why the flag exists at all**: the `replaced` path, where the
+session is dead, still never reveals, and `CloseSessionTab` refuses a `replaced` session outright.
+What guards the live path is that `createPanel` reveals an existing panel and CREATES one only
+when the window holds none — so a Claude tab count that grew is proof the session was not here
+and the reveal resumed it, and that new tab is closed again within a fraction of a second rather
+than left running beside its own successor. Two more checks before anything closes: the reveal
+must have put a Claude tab in front at all, and if the active tab did not MOVE the reveal may
+have done nothing (Claude Code's preferred location can be the side bar, which takes no tab), so
+that case is accepted only when the label agrees. The window's previously active tab is handed
+back afterwards, by the same `handBackActiveTab` the newSession path uses.
 
 **And since v0.9.92 `no tab matched` may only close a card when every tab already has an owner**
 (`ws.UnexplainedTabs`). While one tab answers to nobody, that tab might be this session's, so the
