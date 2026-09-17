@@ -114,6 +114,12 @@ try {
     Deck @('session', 'start', '--id', $idD, '--workspace', $ws, '--title', 'Claude Code') | Out-Null
     $r = Deck @('session', 'end', '--id', $idD, '--close-tab')
     Check 'the session ends and the tab is reported left open' ($r.Code -eq 0 -and $r.Out -match 'ended' -and $r.Out -match 'left open') "[$($r.Code)] $($r.Out)"
+
+    Write-Host "Case 6: a session that already ENDED is refused - revealing it would resume it"
+    Send-Sync '0.6.16'
+    $r = Deck @('session', 'close-tab', '--id', $idD)
+    Check 'refused, and it says why' ($r.Code -ne 0 -and $r.Out -match 'already ended' -and $r.Out -match 'resume it') "[$($r.Code)] $($r.Out)"
+    Check 'nothing was pushed for an ended session' ((Read-Pushed 1200) -eq '')
 }
 finally {
     Deck @('session', 'end', '--id', $idA) | Out-Null

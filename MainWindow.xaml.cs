@@ -3725,8 +3725,16 @@ public partial class MainWindow : Window
     {
         if (Vm.FindSession(sessionId) is not { } found) return (false, $"unknown session id {sessionId}");
         var (ws, session) = found;
+        // Both refusals exist for ONE reason: this path reveals, and a reveal of a session this
+        // window holds no panel for RESUMES it off its transcript (dd17e1bb). The connector
+        // catches that and closes the resumed tab again, but the cheapest handling is not to
+        // reveal a session the deck already knows is gone. What is left after these two is a
+        // session that died without the deck hearing about it, which no liveness check can
+        // answer here - a pid outlives its process and Windows recycles them.
         if (session.Status == SessionStatus.Replaced)
             return (false, "this session was killed by the switch-session relay — the deck closes its tab on its own, by label, because revealing a dead session revives it");
+        if (session.Closed)
+            return (false, "this session has already ended — revealing it would resume it off its transcript, so its tab is left for you to close. Pass --close-tab to `session end` instead, which asks while the session is still alive");
         var conn = FindConnector(ws, session);
         if (conn == null) return (false, "no VSCode connector for this workspace");
         if (!conn.SupportsCloseSessionById)
