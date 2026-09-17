@@ -214,8 +214,28 @@ public sealed class CommandExecutor
             case "end":
             {
                 if (!a.Options.TryGetValue("id", out var id)) return Err("session end requires --id <session_id>");
+                // --close-tab: also close the session's VSCode tab. Asked for BEFORE the end,
+                // because ending it may remove the session record outright (an empty session is
+                // dropped rather than archived) and the tab is found through that record.
+                // Opt-in, so the SessionEnd hook keeps ending sessions without touching tabs —
+                // a session usually ends because its tab was closed in the first place.
+                string tabNote = "";
+                if (a.Flags.Contains("close-tab"))
+                {
+                    var (closed, whyTab) = _window.CloseSessionTab(id);
+                    tabNote = closed ? "; closing its VSCode tab" : $"; its VSCode tab was left open: {whyTab}";
+                }
                 var (msg, ok) = _window.EndSession(id, HookInfoFrom(a));
-                return ok ? Ok(msg) : Err(msg);
+                return ok ? Ok(msg + tabNote) : Err(msg);
+            }
+            // The tab of a session that is still ALIVE, closed by session id rather than by its
+            // label — the only way to reach one of several tabs all called "Claude Code", which
+            // is what a script that opens sessions leaves behind (see MainWindow.CloseSessionTab).
+            case "close-tab":
+            {
+                if (!a.Options.TryGetValue("id", out var id)) return Err("session close-tab requires --id <session_id>");
+                var (ok, why) = _window.CloseSessionTab(id);
+                return ok ? Ok($"asked VSCode to close the tab of session {id}") : Err(why);
             }
             case "new":
             {
@@ -281,7 +301,7 @@ public sealed class CommandExecutor
                 return Ok(sb.Length > 0 ? sb.ToString().TrimEnd() : "(no sessions)");
             }
             default:
-                return Err("session requires: start | status | end | open | new | list");
+                return Err("session requires: start | status | end | close-tab | open | new | list");
         }
     }
 
