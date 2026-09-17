@@ -58,7 +58,7 @@ see "Debugging status and blink" below.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\close-tab.tests.ps1
 ```
 
-15 cases over `session close-tab` / `session end --close-tab`. It needs the INSTALLED deck
+17 cases over `session close-tab` / `session end --close-tab`. It needs the INSTALLED deck
 running, because it stands a fake VSCode connector on the named pipe and reads back the exact
 JSON the deck pushes — which is how the whole deck half is provable without touching one of
 Shay's real windows, including the 0.6.16 capability gate refusing an older one. It must run
@@ -460,7 +460,10 @@ channel and ended again left four tabs reading "Claude Code" for Shay to close b
 (17-09-2026, #4.83.7), because by-label closing refuses a shared label by design and always
 will. So `ById` reveals through Claude Code's own id→panel registry, which is exact. **The
 dd17e1bb rule is untouched and is why the flag exists at all**: the `replaced` path, where the
-session is dead, still never reveals, and `CloseSessionTab` refuses a `replaced` session outright.
+session is dead, still never reveals, and `CloseSessionTab` refuses a `replaced` session, and an already-ENDED one, outright - the two
+states in which the deck knows the panel is gone. What neither refusal reaches is a session that
+died without the deck hearing about it, and nothing here can: a pid outlives its process and
+Windows recycles them, which is why the count check below is the guard rather than a liveness test.
 What guards the live path is that `createPanel` reveals an existing panel and CREATES one only
 when the window holds none — so a Claude tab count that grew is proof the session was not here
 and the reveal resumed it, and that new tab is closed again within a fraction of a second rather
