@@ -2629,7 +2629,8 @@ public partial class MainWindow : Window
         if (isNew)
         {
             conn.OwnerPid = NativeMethods.GetParentProcessId(conn.Pid);
-            LogService.Info("vscode", $"connected pid={conn.Pid} window-pid={conn.OwnerPid} ws=\"{conn.WorkspacePath}\"");
+            LogService.Info("vscode", $"connected pid={conn.Pid} window-pid={conn.OwnerPid} " +
+                                       $"ext={ExtVersionText(conn)} ws=\"{conn.WorkspacePath}\"");
         }
         if (conn.WorkspacePath.Length == 0) return;
 
@@ -3298,16 +3299,28 @@ public partial class MainWindow : Window
     /// <summary>Where a group stands right now, for `sessiondeck groups`: is its instance
     /// running, and is its connector up. Three states, because they need three answers — a
     /// session aimed at a group that is merely slow to connect is parked, one aimed at a group
-    /// that is not running gets it launched.</summary>
+    /// that is not running gets it launched.
+    ///
+    /// The connected state also names the extension VERSION, because a window keeps the one it
+    /// loaded with until it reloads (see VscodeConnection.Version) and every capability gate is
+    /// decided per connection. Without it "can this window close a tab by id?" is answerable
+    /// only by digging the extension's own Output channel out of VSCode's log folders — which
+    /// is what the live verification of close-tab-by-id cost on 18-09-2026, with all three
+    /// windows silently still on 0.6.15 an hour after 0.6.16 was installed.</summary>
     public string GroupStateText(SessionGroupConfig group)
     {
         var ws = group.WorkspacePath.Length > 0 ? Vm.FindByPath(group.WorkspacePath) : null;
         if (ws != null && ConnectorInGroup(ws, group) is { } conn)
-            return $"connected (window-pid {conn.OwnerPid})";
+            return $"connected (window-pid {conn.OwnerPid}, ext {ExtVersionText(conn)})";
         if (GroupWindowIsOpen(group)) return "open, connector not up";
         return group.Launcher.Length > 0 && File.Exists(group.Launcher)
                    ? "not running (the deck can start it)" : "not running";
     }
+
+    /// <summary>The extension version a connector reported. Anything before 0.6.12 sent none,
+    /// so an empty string is a fact about the window rather than a missing reading.</summary>
+    private static string ExtVersionText(VscodeConnection conn)
+        => conn.Version.Length > 0 ? conn.Version : "pre-0.6.12";
 
     private static string HeldModifierName()
     {

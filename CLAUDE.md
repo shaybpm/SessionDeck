@@ -473,6 +473,20 @@ have done nothing (Claude Code's preferred location can be the side bar, which t
 that case is accepted only when the label agrees. The window's previously active tab is handed
 back afterwards, by the same `handBackActiveTab` the newSession path uses.
 
+**Which windows can actually do it is now printed, because guessing it cost a whole verification**
+(v0.9.106). Every capability above is gated per connection and a window keeps the extension it
+loaded with, so "can this window close a tab by id?" is a question about one window and not about
+what is installed. It had no answer anywhere: `sessiondeck groups` said `connected (window-pid N)`
+and the `vscode connected` log line said no more, so on 18-09-2026 the only way to establish that
+all three of Shay's windows were still on 0.6.15 an hour after 0.6.16 was installed was to dig the
+extension's own Output channel out of `%APPDATA%\Code\logs\<stamp>\window<N>\exthost\output_logging_*\
+3-SessionDeck.log`. Both now carry `ext <version>` (`pre-0.6.12` when the window reported none,
+which is a fact about the window rather than a missing reading). Two neighbours worth knowing when
+a window looks stuck on an old version: `~\.vscode\extensions\extensions.json` lists the ONE version
+VSCode will hand a new extension host, so agreeing with it is what makes a reload sufficient; and
+the superseded version's FOLDER stays on disk deregistered, which is what keeps the running windows
+working rather than blacking out their new tabs.
+
 **And since v0.9.92 `no tab matched` may only close a card when every tab already has an owner**
 (`ws.UnexplainedTabs`). While one tab answers to nobody, that tab might be this session's, so the
 sweep is not entitled to the conclusion; ↻ still closes it, because a manual reconcile is the
