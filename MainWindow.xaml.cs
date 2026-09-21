@@ -3656,6 +3656,11 @@ public partial class MainWindow : Window
             LogService.Info("route", $"session={session.SessionId} has no tab here and the window's " +
                                      $"extension is {(conn.Version.Length > 0 ? conn.Version : "pre-0.6.12")} — " +
                                      "opening in place, which may come up blank");
+        // The ordinary case gets a line too (#8.0.18.46, 21-09-2026): a bpmsession:// click from
+        // the internal site revealed a live session's tab inside the window Shay was already in,
+        // the switch was silent, and the route log had nothing to show which window took it.
+        if (tabIsHere)
+            LogService.Info("route", $"session={session.SessionId} revealed in pid={conn.Pid}");
         if (!conn.TrySend(new { Cmd = "openSession", SessionId = session.SessionId,
                                 Maximize = Vm.OpenSessionMaximized, Terminal = viaTerminal }))
         {
