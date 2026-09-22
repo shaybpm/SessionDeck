@@ -251,6 +251,19 @@ known session to `idle` silently — so looking at a session destroyed the state
 read. Since v0.9.40 `resume` and `compact` keep the status and the agent count; only `startup`
 and `clear` reset. That path now logs what it did, which it never used to.
 
+**And a MISSED `SessionStart` used to cost the card permanently** (v0.9.107). A hook-reported
+end was final: `SetSessionStatus` refused every later hook for that session and, until now, did
+not log the refusal, so the card sat closed under a live session with nothing anywhere saying
+why. ↻ cannot reach it either — the reconcile sweep only ever closes cards. One lost
+`SessionStart` is all it takes, and losing one is ordinary: the deck is down for the seconds a
+window takes to come back. Measured 22-09-2026 on session 6f30ed9b — its window closed at 07:47
+and fired `SessionEnd(other)`, the window reopened and resumed it before the deck was back up at
+08:09, and it was still working at 08:57 behind a closed card that Shay could not refresh away.
+A `SessionEnd` is a claim about a PROCESS and a gone process fires no hooks, so a hook arriving
+more than `ReviveAfterEndGrace` (60s) after one outranks it and revives the card. The grace is
+what separates the shutdown's own trailing events, which arrive within seconds, from a session
+speaking again; a refusal inside it is now logged too.
+
 **Every session records WHICH VSCode instance it runs in** (this fork, v0.9.65). Three instances
 share `C:\Users\Shay\.claude` and a card is a folder, so until this the deck merged their tab
 lists into one union and no store anywhere — deck, hook payload, transcript — answered "where is
