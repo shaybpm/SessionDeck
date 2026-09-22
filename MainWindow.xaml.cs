@@ -777,6 +777,21 @@ public partial class MainWindow : Window
     /// anything. See WorkspaceViewModel.ConnectorsChangedAt for what this is paying for.</summary>
     private static readonly TimeSpan TabsSettleGrace = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long after a hook-reported END a further hook from the same session is
+    /// still read as part of that shutdown rather than as proof the session is alive. A real
+    /// SessionEnd means the process is gone, and a gone process fires no hooks — so a hook
+    /// arriving later says the end was wrong, or that the session was resumed while the deck
+    /// could not hear the SessionStart. Only the trailing events of the shutdown itself can
+    /// legitimately arrive after the end, and they arrive within seconds.
+    ///
+    /// Measured 22-09-2026 on session 6f30ed9b: its VSCode window closed at 07:47 and fired
+    /// SessionEnd(other), the window came back and resumed it before the deck was up again at
+    /// 08:09, and that one lost SessionStart was enough to make every hook for the next hour
+    /// hit this wall — the session was still working at 08:57 with a closed card, and the
+    /// refusal was not logged, so nothing on the deck or in the log said why. ↻ cannot help
+    /// either: the reconcile sweep closes cards, it never reopens one.</summary>
+    private static readonly TimeSpan ReviveAfterEndGrace = TimeSpan.FromSeconds(60);
+
     /// <summary>Per-GROUP liveness, the card-level ws.WindowGoneAt one level down. A card is a
     /// folder and its sessions live in several instances of it, so the card's own connector
     /// state answers nothing about any particular session. Keyed "&lt;ws path&gt;|&lt;group id&gt;":
@@ -2229,8 +2244,26 @@ public partial class MainWindow : Window
                 session.EndReason = null;
                 LogService.Info("status", $"session={sessionId} revived (was auto-closed) ws=\"{ws.DisplayTitle}\"");
             }
+            // A hook END is a stronger claim than a sweep's guess — it is the session saying it
+            // is gone — but it is a claim about a PROCESS, and a gone process fires no hooks.
+            // So once ReviveAfterEndGrace has passed, a hook is evidence that outranks it.
+            else if (session.EndedAt is { } endedAt && DateTime.Now - endedAt > ReviveAfterEndGrace)
+            {
+                session.Closed = false;
+                session.EndedAt = null;
+                session.EndReason = null;
+                LogService.Info("status", $"session={sessionId} revived (spoke {(DateTime.Now - endedAt).TotalMinutes:F0}m " +
+                                          $"after it reported ending) ws=\"{ws.DisplayTitle}\"");
+            }
             else
+            {
+                // Logged because it was not: this refusal was silent, so a card stuck closed
+                // under a live session left no trace at all and had to be found by probing the
+                // deck with a status command by hand.
+                LogService.Info("status", $"session={sessionId} is closed ({session.EndReason ?? "?"}) — " +
+                                          $"{SessionStatusNames.ToName(status)} not applied");
                 return ($"session {sessionId} is closed — status not changed", false);
+            }
         }
         // The session is doing something again, so the post-mortem has served its purpose.
         // Not for the `working` this method synthesises out of a `done` — that one is a turn
